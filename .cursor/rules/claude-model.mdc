@@ -1,0 +1,10 @@
+---
+description: Use Claude model for this project
+alwaysApply: true
+---
+
+# Model Preference
+
+This project uses **Claude** (Claude 4.5 Sonnet or Claude 4.6 Opus) as the preferred AI model.
+
+When working in the market project, use Claude models for all AI-assisted coding tasks.

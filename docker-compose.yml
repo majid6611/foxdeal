@@ -1,0 +1,45 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: market-app
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./src:/app/src
+      - ./package.json:/app/package.json
+      - ./tsconfig.json:/app/tsconfig.json
+      - market-uploads:/app/uploads
+    env_file:
+      - .env
+    networks:
+      - dolphia
+    restart: unless-stopped
+
+  mini-app:
+    build:
+      context: ./mini-app
+      dockerfile: Dockerfile
+    container_name: market-mini-app
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./mini-app/src:/app/src
+      - ./mini-app/public:/app/public
+      - ./mini-app/index.html:/app/index.html
+      - ./mini-app/vite.config.ts:/app/vite.config.ts
+      - ./mini-app/package.json:/app/package.json
+      - ./mini-app/tsconfig.json:/app/tsconfig.json
+    env_file:
+      - .env
+    networks:
+      - dolphia
+    restart: unless-stopped
+
+volumes:
+  market-uploads:
+
+networks:
+  dolphia:
+    external: true

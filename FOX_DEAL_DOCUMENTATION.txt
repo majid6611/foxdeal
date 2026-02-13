@@ -1,0 +1,393 @@
+================================================================================
+                         FOX DEAL — PROJECT DOCUMENTATION
+                       Telegram Ad Marketplace (Escrow-Based)
+================================================================================
+
+
+1. OVERVIEW
+--------------------------------------------------------------------------------
+
+Fox Deal is a Telegram-based ad marketplace where advertisers can pay channel
+owners to post ads. All payments are handled through Telegram Stars with a
+built-in escrow system that protects both parties:
+
+  - Advertisers only pay after the channel owner approves the deal.
+  - Payment is held in escrow until the ad is verified to have stayed live
+    for the agreed duration.
+  - If the ad is deleted early, the advertiser is automatically refunded.
+
+The platform consists of three components:
+
+  1. Backend (Node.js + Express + grammY) — API server and Telegram bot
+  2. Mini App (React + Vite) — Telegram WebApp UI for both advertisers and
+     channel owners
+  3. PostgreSQL Database — stores users, channels, deals, and transactions
+
+
+2. ARCHITECTURE
+--------------------------------------------------------------------------------
+
+  +-------------------+       +-------------------+       +-----------------+
+  |   Telegram User   | <---> |   Telegram Bot    | <---> |   PostgreSQL    |
+  |   (Mobile/Web)    |       |   (grammY)        |       |   Database      |
+  +-------------------+       +-------------------+       +-----------------+
+          |                           |
+          v                           v
+  +-------------------+       +-------------------+
+  |   Mini App (UI)   | <---> |   Express API     |
+  |   React + Vite    |       |   REST endpoints  |
+  +-------------------+       +-------------------+
+
+Docker Services:
+  - market-app       — Backend (API + Bot), port 3000
+  - market-mini-app  — Frontend (Vite dev server), port 5173
+  - PostgreSQL       — External database on the "dolphia" Docker network
+
+Nginx sits in front as a reverse proxy, routing traffic from the public
+domain (market.meerkscan.com) to the mini-app container.
+
+
+3. USER ROLES
+--------------------------------------------------------------------------------
+
+Each user can switch between two roles in the Mini App:
+
+  ADVERTISER:
+    - Browse the channel catalog
+    - Create ad deals (submit ad text + optional image)
+    - Pay via Telegram Stars
+    - Track deal progress
+    - Cancel deals (before payment)
+
+  CHANNEL OWNER:
+    - List their Telegram channels on the marketplace
+    - Set pricing and ad duration
+    - Approve or reject incoming ad requests
+    - View and manage their channels
+    - Receive payment when ads are verified
+
+
+4. DEAL LIFECYCLE (State Machine)
+--------------------------------------------------------------------------------
+
+Every deal follows a strict state machine. All transitions are validated
+and enforced by the escrow module.
+
+  created
+    |
+    v
+  pending_approval ----> rejected (terminal)
+    |
+    v
+  approved ----> expired (if advertiser doesn't pay in time)
+    |
+    v
+  escrow_held ----> refunded (if posting fails)
+    |
+    v
+  posted ----> disputed ----> refunded (if ad deleted early)
+    |
+    v
+  verified
+    |
+    v
+  completed (terminal — payment released to owner)
+
+Additional transitions:
+  - created, pending_approval, approved --> cancelled (by advertiser)
+
+Valid Transitions Map:
+  created           -> pending_approval, cancelled
+  pending_approval  -> approved, rejected, cancelled
+  approved          -> escrow_held, expired, cancelled
+  rejected          -> (terminal)
+  escrow_held       -> posted, refunded
+  posted            -> verified, disputed
+  verified          -> completed
+  completed         -> (terminal)
+  disputed          -> refunded
+  refunded          -> (terminal)
+  expired           -> (terminal)
+  cancelled         -> (terminal)
+
+
+5. HAPPY PATH FLOW (Step by Step)
+--------------------------------------------------------------------------------
+
+  1. Channel owner adds their channel in the Mini App.
+     -> Bot verifies it has admin rights on the channel.
+     -> Channel is saved with pricing info.
+
+  2. Advertiser browses the catalog and selects a channel.
+     -> Submits ad text (and optional image) with the deal request.
+     -> Deal status: created -> pending_approval.
+
+  3. Channel owner receives a DM notification from the bot.
+     -> Opens Mini App, reviews the ad, approves or rejects.
+     -> If approved: deal status -> approved.
+     -> If rejected: deal status -> rejected (terminal).
+
+  4. Advertiser gets notified of approval.
+     -> Opens Mini App, clicks "Pay X Stars".
+     -> Telegram Stars payment invoice opens inline.
+     -> On successful payment: deal status -> escrow_held.
+
+  5. Bot automatically posts the ad to the channel (with up to 3 retries).
+     -> Deal status: escrow_held -> posted.
+     -> Continuous monitoring begins.
+
+  6. Monitor checks periodically if the post is still alive:
+     - Every 30s for short durations (<=5 min)
+     - Every 5 min for longer durations
+     -> If post is deleted early: posted -> disputed -> refunded.
+     -> If full duration passes and post is alive: posted -> verified.
+
+  7. On verification: verified -> completed.
+     -> Payment released to channel owner.
+     -> Both parties notified via DM.
+
+
+6. DATABASE SCHEMA
+--------------------------------------------------------------------------------
+
+  USERS
+    id              SERIAL PRIMARY KEY
+    telegram_id     BIGINT UNIQUE NOT NULL
+    role            VARCHAR(20) — 'advertiser' or 'owner'
+    created_at      TIMESTAMPTZ
+
+  CHANNELS
+    id                    SERIAL PRIMARY KEY
+    owner_id              INTEGER -> users(id)
+    telegram_channel_id   VARCHAR(100) UNIQUE
+    username              VARCHAR(100)
+    subscribers           INTEGER
+    category              VARCHAR(50)
+    price                 INTEGER (in Stars)
+    duration_hours        INTEGER
+    bot_is_admin          BOOLEAN
+    is_active             BOOLEAN
+    created_at            TIMESTAMPTZ
+
+  DEALS
+    id                SERIAL PRIMARY KEY
+    advertiser_id     INTEGER -> users(id)
+    channel_id        INTEGER -> channels(id)
+    ad_text           TEXT
+    ad_image_url      TEXT (nullable)
+    duration_hours    INTEGER
+    price             INTEGER
+    status            VARCHAR(30) — see state machine above
+    posted_message_id VARCHAR(100)
+    posted_at         TIMESTAMPTZ
+    verified_at       TIMESTAMPTZ
+    paid_at           TIMESTAMPTZ
+    completed_at      TIMESTAMPTZ
+    rejection_reason  TEXT
+    created_at        TIMESTAMPTZ
+    updated_at        TIMESTAMPTZ (auto-updated via trigger)
+
+  TRANSACTIONS
+    id              SERIAL PRIMARY KEY
+    deal_id         INTEGER -> deals(id)
+    type            VARCHAR(20) — 'hold', 'release', or 'refund'
+    amount          INTEGER
+    payment_method  VARCHAR(50) — default 'telegram_stars'
+    status          VARCHAR(20) — 'pending', 'completed', 'failed'
+    created_at      TIMESTAMPTZ
+
+  Indexes:
+    - Partial unique index on deals(advertiser_id, channel_id) to prevent
+      duplicate active deals for the same advertiser + channel combination.
+    - Indexes on channels(owner_id), deals(advertiser_id), deals(channel_id),
+      deals(status), transactions(deal_id).
+
+
+7. BACKEND STRUCTURE
+--------------------------------------------------------------------------------
+
+  src/
+  ├── index.ts                  — Entry point: starts API + bot
+  ├── config/
+  │   └── env.ts                — Zod-validated environment variables
+  ├── db/
+  │   ├── index.ts              — PostgreSQL connection pool
+  │   ├── queries.ts            — All database queries (CRUD)
+  │   ├── migrate.ts            — SQL migration runner
+  │   └── migrations/
+  │       ├── 001_initial.sql   — Initial schema
+  │       └── 002_add_cancelled_status.sql
+  ├── shared/
+  │   └── types.ts              — TypeScript interfaces (User, Channel, Deal, etc.)
+  ├── escrow/
+  │   ├── index.ts              — State machine: VALID_TRANSITIONS, canTransition, assertTransition
+  │   ├── transitions.ts        — transitionDeal, holdEscrow, releaseEscrow, refundEscrow
+  │   └── index.test.ts         — State machine tests
+  ├── api/
+  │   ├── index.ts              — Express app setup, route registration
+  │   ├── middleware/
+  │   │   └── auth.ts           — Telegram initData validation middleware
+  │   └── routes/
+  │       ├── channels.ts       — Channel CRUD endpoints
+  │       ├── deals.ts          — Deal CRUD + approve/reject/cancel
+  │       ├── payments.ts       — Payment invoice generation
+  │       └── upload.ts         — Image upload and serving
+  └── bot/
+      ├── index.ts              — Bot initialization, /start command
+      ├── admin.ts              — Channel admin checks, posting, message alive check
+      ├── payments.ts           — Telegram Stars payment handling
+      ├── notifications.ts      — DM notifications to users
+      ├── jobs.ts               — Auto-post, continuous monitoring, deal resume
+      ├── expiry.ts             — Auto-expire stale deals
+      └── channelCheck.ts       — Periodic bot admin verification
+
+
+8. API ENDPOINTS
+--------------------------------------------------------------------------------
+
+  All endpoints (except upload serving) require Telegram Mini App auth.
+  Auth is validated via the initData header from the Telegram WebApp SDK.
+
+  CHANNELS:
+    GET    /api/channels           — List active channels (catalog)
+    GET    /api/channels/mine      — List channels owned by the current user
+    POST   /api/channels           — Register a new channel
+    PUT    /api/channels/:id       — Update channel settings
+    DELETE /api/channels/:id       — Deactivate a channel
+
+  DEALS:
+    GET    /api/deals              — List deals for current user (as advertiser)
+    GET    /api/deals/incoming     — List deals for current user (as owner)
+    GET    /api/deals/:id          — Get deal details
+    POST   /api/deals              — Create a new deal
+    POST   /api/deals/:id/approve  — Owner approves a deal
+    POST   /api/deals/:id/reject   — Owner rejects a deal
+    POST   /api/deals/:id/cancel   — Advertiser cancels a deal
+
+  PAYMENTS:
+    POST   /api/payment-link       — Generate Telegram Stars invoice link
+
+  UPLOAD:
+    POST   /api/upload             — Upload an ad image (raw body)
+    GET    /api/upload/:filename   — Serve an uploaded image (no auth)
+
+  HEALTH:
+    GET    /api/health             — Health check
+
+
+9. BACKGROUND JOBS
+--------------------------------------------------------------------------------
+
+  AUTO-POST (on payment):
+    When payment is confirmed, the bot automatically posts the ad to the
+    channel. Retries up to 3 times with exponential backoff (2s, 4s).
+    If all retries fail, the deal is refunded.
+
+  CONTINUOUS MONITORING (after posting):
+    A periodic interval checks if the posted message is still alive.
+    - Check interval: 30s for short durations, 5 min for longer ones.
+    - If the message is deleted: deal is disputed and refunded.
+    - If the full duration passes: deal is verified and completed.
+    - On app restart, monitoring resumes for all deals in "posted" state.
+
+  EXPIRY JOB (every 5 minutes):
+    - Approved deals older than PAYMENT_TIMEOUT_HOURS -> expired.
+    - Pending approval deals older than APPROVAL_TIMEOUT_HOURS -> auto-rejected.
+
+  CHANNEL CHECK JOB (every 10 minutes):
+    - Verifies the bot is still admin of all active channels.
+    - If the bot was removed, the channel is deactivated and any in-progress
+      deals are refunded.
+
+
+10. MINI APP (FRONTEND)
+--------------------------------------------------------------------------------
+
+  Built with React + Vite, served as a Telegram Mini App.
+
+  Pages:
+    - Splash Screen   — Animated logo with loading spinner (2s on startup)
+    - Catalog         — Browse available channels (advertiser view)
+    - Channel Detail  — View channel info, create a deal with ad text/image
+    - Deal Detail     — View deal status, pay, approve/reject, cancel
+    - My Deals        — List of advertiser's deals
+    - Incoming Deals  — List of deals for channel owner
+    - List Channel    — Form to register a new channel
+    - My Channels     — Manage owned channels
+
+  Authentication:
+    The Mini App uses Telegram's WebApp initData for authentication.
+    This is sent as a header with every API request and validated server-side.
+
+  Payment Flow:
+    The Mini App generates an invoice link via the API, then calls
+    Telegram.WebApp.openInvoice() to open the native Telegram Stars
+    payment dialog inline.
+
+
+11. ENVIRONMENT VARIABLES
+--------------------------------------------------------------------------------
+
+  DATABASE_URL            — PostgreSQL connection string
+  BOT_TOKEN               — Telegram bot token
+  MINI_APP_URL            — Public URL of the Mini App (for image URLs)
+  POST_DURATION_MINUTES   — How long an ad must stay posted (default: 2)
+  PAYMENT_TIMEOUT_HOURS   — Time for advertiser to pay after approval (default: 2)
+  APPROVAL_TIMEOUT_HOURS  — Time for owner to approve/reject (default: 24)
+
+
+12. DOCKER SETUP
+--------------------------------------------------------------------------------
+
+  docker-compose.yml defines two services:
+
+    market-app (port 3000):
+      - Node.js backend with tsx watch for hot-reloading
+      - Bind mounts: src/, package.json, tsconfig.json
+      - Named volume: market-uploads (for uploaded images)
+      - Connected to external "dolphia" Docker network
+
+    market-mini-app (port 5173):
+      - Vite dev server with hot-reloading
+      - Bind mounts: src/, public/, index.html, vite.config.ts, package.json, tsconfig.json
+      - Connected to external "dolphia" Docker network
+
+  The PostgreSQL database runs on the same "dolphia" network as a
+  separate service (not managed by this docker-compose).
+
+  Commands:
+    docker compose up -d --build      — Build and start all services
+    docker compose up -d --force-recreate  — Recreate with env changes
+    docker compose logs -f app        — Follow backend logs
+    docker compose logs -f mini-app   — Follow frontend logs
+
+
+13. NOTIFICATIONS
+--------------------------------------------------------------------------------
+
+  The bot sends DM notifications for key deal events:
+
+    - New deal request     -> Channel owner
+    - Deal approved        -> Advertiser
+    - Deal rejected        -> Advertiser
+    - Payment received     -> Advertiser (via reply)
+    - Ad verified          -> Both parties
+    - Payment released     -> Channel owner
+    - Ad deleted early     -> Both parties (with refund notice)
+    - Deal expired         -> Advertiser
+    - Deal auto-rejected   -> Advertiser
+
+
+14. SECURITY
+--------------------------------------------------------------------------------
+
+  - All API routes validate Telegram initData (HMAC-SHA256 signature).
+  - Escrow state transitions are atomic (DB WHERE clause prevents races).
+  - Only one active deal per advertiser + channel (enforced by partial unique index).
+  - Image uploads are validated by content type and size.
+  - Bot admin status is periodically verified for all active channels.
+
+
+================================================================================
+                              END OF DOCUMENTATION
+================================================================================
