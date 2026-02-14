@@ -4,3 +4,4 @@ dist/
 *.log
 mini-app/node_modules/
 mini-app/dist/
+CLAUDE.md
