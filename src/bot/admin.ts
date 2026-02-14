@@ -39,7 +39,8 @@ export async function getChannelInfo(channelId: string | number) {
 
 /**
  * Post a message to a channel. Returns the message ID or null on failure.
- * If a trackingUrl is provided, an inline "Learn More" button is added.
+ * If a trackingUrl is provided, adds an inline "Learn More" button that redirects
+ * through our click tracker for unique visitor dedup + CPC billing.
  */
 export async function postToChannel(
   channelId: string | number,

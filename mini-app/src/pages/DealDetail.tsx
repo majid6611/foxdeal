@@ -3,6 +3,7 @@ import { getDeal, approveDeal, rejectDeal, requestPayment, cancelDeal, type Deal
 
 const STATUS_LABELS: Record<string, string> = {
   created: 'Created',
+  pending_admin: 'Under Review',
   pending_approval: 'Pending Approval',
   approved: 'Approved — Pay Now',
   rejected: 'Rejected',
@@ -354,6 +355,15 @@ export function DealDetail({
         </div>
       )}
 
+      {deal.status === 'pending_admin' && (
+        <div className="info-card info">
+          <p><strong>Under Review</strong></p>
+          <p style={{ fontSize: 13, color: 'var(--tg-hint)', marginTop: 4 }}>
+            Your ad is being reviewed by the Fox Deal team. You'll be notified once it's approved.
+          </p>
+        </div>
+      )}
+
       {deal.status === 'cancelled' && (
         <div className="info-card" style={{ background: 'rgba(139,139,158,0.1)', border: '1px solid rgba(139,139,158,0.2)' }}>
           <p><strong>Cancelled</strong></p>
@@ -362,7 +372,7 @@ export function DealDetail({
       )}
 
       {/* Cancel button for advertiser (before payment) */}
-      {!isOwner && ['created', 'pending_approval', 'approved'].includes(deal.status) && (
+      {!isOwner && ['created', 'pending_admin', 'pending_approval', 'approved'].includes(deal.status) && (
         <button
           className="btn btn-danger"
           style={{ marginTop: 12 }}

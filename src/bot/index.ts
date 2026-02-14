@@ -29,6 +29,10 @@ export async function startBot(): Promise<void> {
   const { registerPaymentHandlers } = await import('./payments.js');
   registerPaymentHandlers();
 
+  // Register admin channel approval/rejection handlers
+  const { registerAdminChannelHandlers } = await import('./adminChannel.js');
+  registerAdminChannelHandlers();
+
   console.log('[bot] Starting Telegram bot...');
   await bot.start();
 

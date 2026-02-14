@@ -35,8 +35,8 @@ export async function createChannel(
   cpcPrice: number = 0,
 ): Promise<Channel> {
   const { rows } = await pool.query<Channel>(
-    `INSERT INTO channels (owner_id, telegram_channel_id, username, subscribers, category, price, duration_hours, cpc_price)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    `INSERT INTO channels (owner_id, telegram_channel_id, username, subscribers, category, price, duration_hours, cpc_price, approval_status)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending')
      RETURNING *`,
     [ownerId, telegramChannelId, username, subscribers, category, price, durationHours, cpcPrice],
   );
@@ -53,7 +53,7 @@ export async function getChannelById(id: number): Promise<Channel | null> {
 
 export async function getActiveChannels(): Promise<Channel[]> {
   const { rows } = await pool.query<Channel>(
-    'SELECT * FROM channels WHERE is_active = TRUE ORDER BY subscribers DESC',
+    "SELECT * FROM channels WHERE is_active = TRUE AND approval_status = 'approved' ORDER BY subscribers DESC",
   );
   return rows;
 }
@@ -85,6 +85,22 @@ export async function activateChannel(channelId: number): Promise<void> {
     'UPDATE channels SET is_active = TRUE WHERE id = $1',
     [channelId],
   );
+}
+
+export async function approveChannel(channelId: number): Promise<Channel | null> {
+  const { rows } = await pool.query<Channel>(
+    "UPDATE channels SET approval_status = 'approved' WHERE id = $1 RETURNING *",
+    [channelId],
+  );
+  return rows[0] ?? null;
+}
+
+export async function rejectChannel(channelId: number): Promise<Channel | null> {
+  const { rows } = await pool.query<Channel>(
+    "UPDATE channels SET approval_status = 'rejected', is_active = FALSE WHERE id = $1 RETURNING *",
+    [channelId],
+  );
+  return rows[0] ?? null;
 }
 
 // ── Deals ────────────────────────────────────────────────────────────
@@ -342,4 +358,37 @@ export async function getEarningsHistory(ownerId: number): Promise<(OwnerEarning
     [ownerId],
   );
   return rows;
+}
+
+// ── Unique Click Tracking ───────────────────────────────────────────
+
+/**
+ * Record a unique visitor click using a hash of IP + User-Agent.
+ * Returns true if inserted (new visitor), false if duplicate.
+ */
+export async function recordVisitorClick(dealId: number, visitorHash: string): Promise<boolean> {
+  try {
+    await pool.query(
+      'INSERT INTO deal_clicks (deal_id, visitor_hash) VALUES ($1, $2)',
+      [dealId, visitorHash],
+    );
+    return true;
+  } catch (err) {
+    // Unique constraint violation = duplicate click
+    if ((err as any)?.code === '23505') {
+      return false;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Get the number of unique clicks for a deal.
+ */
+export async function getUniqueClickCount(dealId: number): Promise<number> {
+  const { rows } = await pool.query<{ count: string }>(
+    'SELECT COUNT(*) as count FROM deal_clicks WHERE deal_id = $1',
+    [dealId],
+  );
+  return Number(rows[0].count);
 }

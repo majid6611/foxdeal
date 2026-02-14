@@ -118,6 +118,43 @@ body {
   margin-bottom: 16px;
 }
 
+/* ─── Category Filter Chips ─── */
+.filter-chips {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.filter-chips::-webkit-scrollbar {
+  display: none;
+}
+.filter-chip {
+  flex-shrink: 0;
+  padding: 6px 14px;
+  border-radius: 20px;
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 60%, transparent);
+  background: var(--tg-secondary-bg);
+  color: var(--tg-hint);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+.filter-chip:hover {
+  border-color: var(--fox-amber);
+  color: var(--fox-amber);
+}
+.filter-chip.active {
+  background: linear-gradient(135deg, var(--fox-orange), var(--fox-amber));
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 2px 8px rgba(255, 107, 43, 0.3);
+}
+
 /* Cards */
 .card {
   background: var(--tg-secondary-bg);
@@ -178,6 +215,7 @@ body {
 
 /* Status badges */
 .status-created,
+.status-pending_admin { background: rgba(156, 136, 255, 0.15); color: #9c88ff; }
 .status-pending_approval { background: rgba(255, 193, 7, 0.15); color: #e6a800; }
 .status-approved { background: rgba(52, 152, 219, 0.15); color: #2980b9; }
 .status-escrow_held { background: rgba(46, 204, 113, 0.15); color: #27ae60; }

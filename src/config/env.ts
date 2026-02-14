@@ -8,6 +8,7 @@ const envSchema = z.object({
   POST_DURATION_MINUTES: z.coerce.number().positive().default(2),
   PAYMENT_TIMEOUT_HOURS: z.coerce.number().positive().default(2),
   APPROVAL_TIMEOUT_HOURS: z.coerce.number().positive().default(24),
+  ADMIN_CHANNEL_ID: z.coerce.number().int(),
 });
 
 export type Env = z.infer<typeof envSchema>;

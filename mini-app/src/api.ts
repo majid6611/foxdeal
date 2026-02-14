@@ -35,6 +35,7 @@ export interface Channel {
   cpc_price: number;
   bot_is_admin: boolean;
   is_active: boolean;
+  approval_status: 'pending' | 'approved' | 'rejected';
 }
 
 export interface Deal {

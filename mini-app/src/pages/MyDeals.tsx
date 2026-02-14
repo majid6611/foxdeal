@@ -3,6 +3,7 @@ import { getMyDeals, getIncomingDeals, type Deal } from '../api';
 
 const STATUS_LABELS: Record<string, string> = {
   created: 'Created',
+  pending_admin: 'Under Review',
   pending_approval: 'Pending',
   approved: 'Pay Now',
   rejected: 'Rejected',

@@ -11,6 +11,7 @@ import {
 import { upsertUser, getUserByTelegramId } from '../../db/queries.js';
 import { transitionDeal } from '../../escrow/transitions.js';
 import { notifyOwnerNewDeal, notifyAdvertiserApproved, notifyAdvertiserRejected } from '../../bot/notifications.js';
+import { sendDealForAdminReview } from '../../bot/adminChannel.js';
 
 export const dealsRouter = Router();
 
@@ -108,6 +109,8 @@ dealsRouter.post('/', async (req, res) => {
       isCpc ? body.budget! : 0,
     );
 
+    // Demo mode: skip admin review, go straight to channel owner approval
+    // TODO: restore admin review after demo — change back to 'pending_admin' and sendDealForAdminReview
     const updated = await transitionDeal(deal.id, 'created', 'pending_approval');
 
     notifyOwnerNewDeal(updated).catch((e) =>
@@ -193,7 +196,7 @@ dealsRouter.post('/:id/cancel', async (req, res) => {
       return;
     }
 
-    const cancellableStatuses = ['created', 'pending_approval', 'approved'];
+    const cancellableStatuses = ['created', 'pending_admin', 'pending_approval', 'approved'];
     if (!cancellableStatuses.includes(deal.status)) {
       res.status(400).json({ error: 'This deal can no longer be cancelled' });
       return;

@@ -12,6 +12,7 @@ import {
 } from '../../db/queries.js';
 import { upsertUser, getUserByTelegramId } from '../../db/queries.js';
 import { isBotAdminOfChannel, getChannelInfo } from '../../bot/admin.js';
+import { sendChannelForApproval } from '../../bot/adminChannel.js';
 
 export const channelsRouter = Router();
 
@@ -106,7 +107,12 @@ channelsRouter.post('/', async (req, res) => {
 
     await updateChannelBotAdmin(channel.id, true);
 
-    res.status(201).json(channel);
+    // Demo mode: auto-approve channel immediately
+    // TODO: restore admin approval after demo — use sendChannelForApproval instead
+    const { approveChannel } = await import('../../db/queries.js');
+    await approveChannel(channel.id);
+
+    res.status(201).json({ ...channel, approval_status: 'approved' as const });
   } catch (err) {
     if (err instanceof z.ZodError) {
       res.status(400).json({ error: 'Invalid input', details: err.errors });

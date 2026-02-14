@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import express from 'express';
 import { channelsRouter } from './routes/channels.js';
 import { dealsRouter } from './routes/deals.js';
@@ -7,6 +8,9 @@ import { earningsRouter } from './routes/earnings.js';
 
 export const app = express();
 
+// Trust proxy so req.ip returns the real client IP behind Nginx
+app.set('trust proxy', true);
+
 app.use(express.json());
 
 // Health check (no auth required)
@@ -14,10 +18,18 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Click tracking redirect (no auth — public URL for inline buttons)
+/**
+ * Create a visitor fingerprint hash from IP + User-Agent.
+ * Not perfect but good enough for basic click fraud prevention.
+ */
+function visitorHash(ip: string, ua: string): string {
+  return crypto.createHash('sha256').update(`${ip}|${ua}`).digest('hex').slice(0, 32);
+}
+
+// Click tracking + redirect (public — used as inline button URL in channel posts)
 app.get('/api/click/:dealId', async (req, res) => {
   try {
-    const { getDealById, incrementClickCount, spendClick, getChannelById } = await import('../db/queries.js');
+    const { getDealById, getChannelById, recordVisitorClick, spendClick, incrementClickCount } = await import('../db/queries.js');
     const dealId = Number(req.params.dealId);
     const deal = await getDealById(dealId);
 
@@ -26,35 +38,43 @@ app.get('/api/click/:dealId', async (req, res) => {
       return;
     }
 
-    if (deal.pricing_model === 'cpc' && deal.status === 'posted') {
-      // CPC deal: deduct click cost from budget
-      const channel = await getChannelById(deal.channel_id);
-      const cpcPrice = channel?.cpc_price ?? 0;
+    // Build visitor fingerprint from IP + User-Agent
+    const ip = req.ip ?? req.socket.remoteAddress ?? 'unknown';
+    const ua = req.headers['user-agent'] ?? 'unknown';
+    const hash = visitorHash(ip, ua);
 
-      if (cpcPrice > 0) {
-        const updated = await spendClick(dealId, cpcPrice);
+    // Try to record as a unique visitor click
+    const isNewClick = await recordVisitorClick(dealId, hash);
 
-        // Check if budget is now exhausted
-        if (updated && updated.budget_spent >= updated.budget) {
-          // Budget exhausted — complete the CPC deal (remove post, settle)
-          const { completeCpcDeal } = await import('../bot/jobs.js');
-          completeCpcDeal(dealId).catch((err: unknown) =>
-            console.error(`[click] Failed to complete CPC deal ${dealId}:`, err),
-          );
+    if (isNewClick) {
+      if (deal.pricing_model === 'cpc' && deal.status === 'posted') {
+        // CPC deal: deduct click cost from budget
+        const channel = await getChannelById(deal.channel_id);
+        const cpcPrice = channel ? Number(channel.cpc_price) : 0;
+
+        if (cpcPrice > 0) {
+          const updated = await spendClick(dealId, cpcPrice);
+
+          // Check if budget is now exhausted
+          if (updated && Number(updated.budget_spent) >= updated.budget) {
+            const { completeCpcDeal } = await import('../bot/jobs.js');
+            completeCpcDeal(dealId).catch((err: unknown) =>
+              console.error(`[click] Failed to complete CPC deal ${dealId}:`, err),
+            );
+          }
         }
+
+        console.log(`[click] New unique CPC click: deal ${dealId}, hash ${hash.slice(0, 8)}...`);
       } else {
-        // Fallback: just increment click count
-        incrementClickCount(dealId).catch((err: unknown) =>
-          console.error(`[click] Failed to increment for deal ${dealId}:`, err),
-        );
+        // Time-based deal: just increment click count
+        incrementClickCount(dealId).catch(() => {});
+        console.log(`[click] New unique click: deal ${dealId}, hash ${hash.slice(0, 8)}...`);
       }
     } else {
-      // Time-based deal or non-posted: just increment click count
-      incrementClickCount(dealId).catch((err: unknown) =>
-        console.error(`[click] Failed to increment for deal ${dealId}:`, err),
-      );
+      console.log(`[click] Duplicate click ignored: deal ${dealId}, hash ${hash.slice(0, 8)}...`);
     }
 
+    // Always redirect to the final URL (seamless for the user)
     res.redirect(302, deal.ad_link);
   } catch (err) {
     console.error('[click] Error:', err);

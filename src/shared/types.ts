@@ -1,6 +1,7 @@
 // Deal status union type — all deal state transitions go through src/escrow/
 export type DealStatus =
   | 'created'
+  | 'pending_admin'
   | 'pending_approval'
   | 'approved'
   | 'rejected'
@@ -24,6 +25,8 @@ export interface User {
   created_at: Date;
 }
 
+export type ChannelApprovalStatus = 'pending' | 'approved' | 'rejected';
+
 export interface Channel {
   id: number;
   owner_id: number;
@@ -36,6 +39,7 @@ export interface Channel {
   cpc_price: number;
   bot_is_admin: boolean;
   is_active: boolean;
+  approval_status: ChannelApprovalStatus;
 }
 
 export interface Deal {

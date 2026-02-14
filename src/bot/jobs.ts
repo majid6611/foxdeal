@@ -27,7 +27,7 @@ export async function autoPostDeal(dealId: number): Promise<void> {
     return;
   }
 
-  // Build tracking URL if ad has a link
+  // Build tracking URL if ad has a link (goes through our click dedup endpoint)
   const trackingUrl = deal.ad_link
     ? `${env.MINI_APP_URL.replace(/\/$/, '')}/api/click/${dealId}`
     : null;

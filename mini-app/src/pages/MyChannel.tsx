@@ -217,8 +217,14 @@ export function MyChannel({ onBack }: { onBack: () => void }) {
                 <div className="card-title">@{ch.username}</div>
                 <div className="card-subtitle">{ch.category}</div>
               </div>
-              <span className={`card-badge ${ch.is_active ? 'status-completed' : 'status-rejected'}`}>
-                {ch.is_active ? 'Active' : 'Inactive'}
+              <span className={`card-badge ${
+                ch.approval_status === 'pending' ? 'status-pending' :
+                ch.approval_status === 'rejected' ? 'status-rejected' :
+                ch.is_active ? 'status-completed' : 'status-rejected'
+              }`}>
+                {ch.approval_status === 'pending' ? '⏳ Pending Review' :
+                 ch.approval_status === 'rejected' ? '❌ Rejected' :
+                 ch.is_active ? 'Active' : 'Inactive'}
               </span>
             </div>
 
@@ -243,7 +249,19 @@ export function MyChannel({ onBack }: { onBack: () => void }) {
               </div>
             </div>
 
-            {ch.is_active ? (
+            {ch.approval_status === 'pending' && (
+              <div className="info-card" style={{ marginTop: 12, padding: '10px 14px' }}>
+                Your channel is under review by the Fox Deal team. You'll receive a notification once it's approved.
+              </div>
+            )}
+
+            {ch.approval_status === 'rejected' && (
+              <div className="info-card" style={{ marginTop: 12, padding: '10px 14px', borderColor: 'var(--fox-danger)' }}>
+                This channel was not approved. Please contact support for more details.
+              </div>
+            )}
+
+            {ch.approval_status === 'approved' && ch.is_active && (
               <button
                 className="btn btn-danger"
                 style={{ marginTop: 12 }}
@@ -252,7 +270,9 @@ export function MyChannel({ onBack }: { onBack: () => void }) {
               >
                 {actionId === ch.id ? 'Deactivating...' : 'Deactivate Channel'}
               </button>
-            ) : (
+            )}
+
+            {ch.approval_status === 'approved' && !ch.is_active && (
               <button
                 className="btn btn-primary"
                 style={{ marginTop: 12 }}

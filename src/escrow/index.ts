@@ -2,7 +2,8 @@ import type { DealStatus } from '../shared/types.js';
 
 // Valid state transitions — enforced here and nowhere else
 const VALID_TRANSITIONS: Record<DealStatus, DealStatus[]> = {
-  created: ['pending_approval', 'cancelled'],
+  created: ['pending_admin', 'pending_approval', 'cancelled'],
+  pending_admin: ['pending_approval', 'rejected', 'cancelled'],
   pending_approval: ['approved', 'rejected', 'cancelled'],
   approved: ['escrow_held', 'expired', 'cancelled'],
   rejected: [],
