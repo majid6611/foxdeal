@@ -61,7 +61,21 @@ export function MyDeals({
         <div key={deal.id} className="card" onClick={() => onSelectDeal(deal.id)}>
           <div className="card-header">
             <div>
-              <div className="card-title">Deal #{deal.id}</div>
+              <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                Deal #{deal.id}
+                {deal.pricing_model === 'cpc' && (
+                  <span style={{
+                    fontSize: 10,
+                    padding: '2px 6px',
+                    borderRadius: 4,
+                    background: 'rgba(39, 188, 255, 0.12)',
+                    color: '#27bcff',
+                    fontWeight: 600,
+                  }}>
+                    CPC
+                  </span>
+                )}
+              </div>
               <div className="card-subtitle">
                 {deal.ad_text.length > 60
                   ? deal.ad_text.slice(0, 60) + '...'
@@ -73,8 +87,15 @@ export function MyDeals({
             </span>
           </div>
           <div className="card-row">
-            <span className="price-tag">{deal.price} Stars</span>
+            <span className="price-tag">
+              {deal.pricing_model === 'cpc'
+                ? `${Number(deal.budget_spent) % 1 === 0 ? deal.budget_spent : Number(deal.budget_spent).toFixed(2)}/${deal.budget} Stars`
+                : `${deal.price} Stars`}
+            </span>
             <span style={{ fontSize: 13, color: 'var(--tg-hint)' }}>
+              {deal.pricing_model === 'cpc' && deal.click_count > 0
+                ? `${deal.click_count} clicks · `
+                : ''}
               {new Date(deal.created_at).toLocaleDateString()}
             </span>
           </div>

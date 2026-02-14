@@ -1,5 +1,5 @@
 import { assertTransition } from './index.js';
-import { updateDealStatus, createTransaction } from '../db/queries.js';
+import { updateDealStatus, createTransaction, recordEarning, getChannelById } from '../db/queries.js';
 import type { Deal, DealStatus } from '../shared/types.js';
 
 /**
@@ -41,12 +41,25 @@ export async function holdEscrow(dealId: number, amount: number): Promise<Deal> 
 
 /**
  * Release payment to owner: verified → completed
+ * Records 95% as owner earning (paid out after 30 days), 5% as platform fee.
  */
 export async function releaseEscrow(dealId: number, amount: number): Promise<Deal> {
   const deal = await transitionDeal(dealId, 'verified', 'completed', {
     completed_at: new Date(),
   });
   await createTransaction(dealId, 'release', amount);
+
+  // Record owner earnings (95/5 split, 30-day payout)
+  try {
+    const channel = await getChannelById(deal.channel_id);
+    if (channel) {
+      await recordEarning(channel.owner_id, dealId, deal.channel_id, amount);
+      console.log(`[escrow] Recorded earning for owner ${channel.owner_id}: ${amount} Stars (deal ${dealId})`);
+    }
+  } catch (err) {
+    console.error(`[escrow] Failed to record earning for deal ${dealId}:`, (err as Error).message);
+  }
+
   return deal;
 }
 

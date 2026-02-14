@@ -33,6 +33,7 @@ export interface Channel {
   category: string;
   price: number;
   duration_hours: number;
+  cpc_price: number;
   bot_is_admin: boolean;
   is_active: boolean;
 }
@@ -43,6 +44,11 @@ export interface Deal {
   channel_id: number;
   ad_text: string;
   ad_image_url: string | null;
+  ad_link: string | null;
+  click_count: number;
+  pricing_model: 'time' | 'cpc';
+  budget: number;
+  budget_spent: number;
   duration_hours: number;
   price: number;
   status: DealStatus;
@@ -64,4 +70,20 @@ export interface Transaction {
   payment_method: string;
   status: TransactionStatus;
   created_at: Date;
+}
+
+export type EarningStatus = 'pending' | 'paid';
+
+export interface OwnerEarning {
+  id: number;
+  owner_id: number;
+  deal_id: number;
+  channel_id: number;
+  gross_amount: number;
+  platform_fee: number;
+  net_amount: number;
+  status: EarningStatus;
+  earned_at: Date;
+  payout_at: Date;
+  paid_at: Date | null;
 }

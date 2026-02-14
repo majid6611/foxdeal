@@ -41,7 +41,6 @@ export function DealDetail({
 
   useEffect(() => {
     fetchDeal();
-    // Poll for status changes every 5s
     const interval = setInterval(fetchDeal, 5000);
     return () => clearInterval(interval);
   }, [dealId]);
@@ -75,15 +74,29 @@ export function DealDetail({
   if (error && !deal) return <div className="error">{error}</div>;
   if (!deal) return <div className="error">Deal not found</div>;
 
+  const isCpc = deal.pricing_model === 'cpc';
+  const spent = Number(deal.budget_spent);
+  const budgetRemaining = isCpc ? deal.budget - spent : 0;
+  const budgetPercent = isCpc && deal.budget > 0
+    ? Math.round((spent / deal.budget) * 100)
+    : 0;
+  const formatSpent = (v: number) => v % 1 === 0 ? String(v) : v.toFixed(2);
+
   return (
     <div>
       <button className="back-btn" onClick={onBack}>← Back</button>
 
       <div className="detail-header">
         <div className="detail-title">Deal #{deal.id}</div>
-        <div style={{ marginTop: 8 }}>
+        <div style={{ marginTop: 8, display: 'flex', gap: 6, alignItems: 'center' }}>
           <span className={`card-badge status-${deal.status}`}>
             {STATUS_LABELS[deal.status] ?? deal.status}
+          </span>
+          <span className="card-badge" style={{
+            background: isCpc ? 'rgba(39, 188, 255, 0.12)' : 'rgba(255, 107, 43, 0.12)',
+            color: isCpc ? '#27bcff' : '#ff6b2b',
+          }}>
+            {isCpc ? 'CPC' : 'Time-based'}
           </span>
         </div>
         <div className="detail-price">{deal.price} Stars</div>
@@ -107,14 +120,99 @@ export function DealDetail({
           />
         )}
         <div className="ad-preview">{deal.ad_text}</div>
+        {deal.ad_link && (
+          <div style={{
+            marginTop: 8,
+            padding: '10px 14px',
+            background: 'var(--tg-secondary-bg)',
+            borderRadius: 'var(--radius-sm)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            fontSize: 13,
+          }}>
+            <span>🔗</span>
+            <a
+              href={deal.ad_link}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: 'var(--fox-amber)', textDecoration: 'none', wordBreak: 'break-all' }}
+            >
+              {deal.ad_link}
+            </a>
+          </div>
+        )}
       </div>
 
       <div className="detail-section">
         <h3>Details</h3>
+
         <div className="detail-row">
-          <span>Duration</span>
-          <strong>{deal.duration_hours}h</strong>
+          <span>Pricing</span>
+          <strong>{isCpc ? 'Cost per Click' : 'Time-based'}</strong>
         </div>
+
+        {isCpc ? (
+          <>
+            <div className="detail-row">
+              <span>Budget</span>
+              <strong>{deal.budget} Stars</strong>
+            </div>
+            <div className="detail-row">
+              <span>Spent</span>
+              <strong style={{ color: 'var(--fox-amber)' }}>{formatSpent(spent)} Stars</strong>
+            </div>
+            <div className="detail-row">
+              <span>Remaining</span>
+              <strong style={{ color: budgetRemaining > 0 ? 'var(--fox-green)' : 'var(--tg-hint)' }}>
+                {formatSpent(budgetRemaining)} Stars
+              </strong>
+            </div>
+            <div className="detail-row">
+              <span>Clicks</span>
+              <strong style={{ color: 'var(--fox-amber)' }}>{deal.click_count}</strong>
+            </div>
+
+            {/* Budget progress bar */}
+            {deal.budget > 0 && (
+              <div style={{ marginTop: 8 }}>
+                <div style={{
+                  height: 8,
+                  borderRadius: 4,
+                  background: 'var(--tg-secondary-bg)',
+                  overflow: 'hidden',
+                }}>
+                  <div style={{
+                    height: '100%',
+                    width: `${Math.min(budgetPercent, 100)}%`,
+                    borderRadius: 4,
+                    background: budgetPercent >= 100
+                      ? 'var(--fox-green)'
+                      : 'linear-gradient(90deg, #ff6b2b, #ffb347)',
+                    transition: 'width 0.3s ease',
+                  }} />
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--tg-hint)', marginTop: 4, textAlign: 'right' }}>
+                  {budgetPercent}% used
+                </div>
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <div className="detail-row">
+              <span>Duration</span>
+              <strong>{deal.duration_hours}h</strong>
+            </div>
+            {deal.ad_link && (
+              <div className="detail-row">
+                <span>Button Clicks</span>
+                <strong style={{ color: 'var(--fox-amber)' }}>{deal.click_count}</strong>
+              </div>
+            )}
+          </>
+        )}
+
         <div className="detail-row">
           <span>Status</span>
           <strong>{STATUS_LABELS[deal.status] ?? deal.status}</strong>
@@ -205,12 +303,10 @@ export function DealDetail({
                 if (tg?.openInvoice) {
                   tg.openInvoice(invoiceLink, (status) => {
                     if (status === 'paid') {
-                      // Refresh deal to see updated status
                       fetchDeal();
                     } else if (status === 'failed') {
                       setError('Payment failed. Please try again.');
                     }
-                    // 'cancelled' = user closed the payment dialog
                   });
                 } else {
                   setError('Payment is only available inside Telegram.');
@@ -231,9 +327,11 @@ export function DealDetail({
       {/* Status messages */}
       {deal.status === 'posted' && (
         <div className="info-card info">
-          <p><strong>Ad is live! 🦊</strong></p>
+          <p><strong>Ad is live!</strong></p>
           <p style={{ fontSize: 13, color: 'var(--tg-hint)', marginTop: 4 }}>
-            The bot will verify the post is still active after the timer expires.
+            {isCpc
+              ? `CPC ad is running. ${formatSpent(budgetRemaining)} Stars remaining (${deal.click_count} clicks so far). Post will be removed when budget runs out.`
+              : 'The bot will verify the post is still active after the timer expires.'}
           </p>
         </div>
       )}
@@ -241,7 +339,11 @@ export function DealDetail({
       {deal.status === 'completed' && (
         <div className="info-card success">
           <p><strong>Deal completed!</strong></p>
-          <p style={{ fontSize: 13, marginTop: 4 }}>Payment of {deal.price} Stars has been released.</p>
+          <p style={{ fontSize: 13, marginTop: 4 }}>
+            {isCpc
+              ? `${deal.click_count} clicks delivered. ${formatSpent(spent)} Stars spent.${budgetRemaining > 0 ? ` ${formatSpent(budgetRemaining)} Stars refunded.` : ''}`
+              : `Payment of ${deal.price} Stars has been released.`}
+          </p>
         </div>
       )}
 

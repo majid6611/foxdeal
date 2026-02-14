@@ -42,10 +42,17 @@ export function Catalog({ onSelect }: { onSelect: (ch: Channel) => void }) {
             </span>
           </div>
           <div className="card-row">
-            <span className="price-tag">{ch.price} Stars</span>
-            <span style={{ fontSize: 13, color: 'var(--tg-hint)' }}>
-              {ch.duration_hours}h duration
-            </span>
+            <span className="price-tag">{ch.price} Stars / {ch.duration_hours}h</span>
+            {ch.cpc_price > 0 && (
+              <span style={{ fontSize: 12, color: '#27bcff', fontWeight: 500 }}>
+                CPC: {ch.cpc_price} Stars/click
+              </span>
+            )}
+            {ch.cpc_price <= 0 && (
+              <span style={{ fontSize: 13, color: 'var(--tg-hint)' }}>
+                Time-based only
+              </span>
+            )}
           </div>
         </div>
       ))}

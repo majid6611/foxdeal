@@ -8,6 +8,7 @@ import {
   getChannelsByOwner,
   updateChannelBotAdmin,
   deactivateChannel,
+  activateChannel,
 } from '../../db/queries.js';
 import { upsertUser, getUserByTelegramId } from '../../db/queries.js';
 import { isBotAdminOfChannel, getChannelInfo } from '../../bot/admin.js';
@@ -22,6 +23,7 @@ const createChannelSchema = z.object({
   category: z.string().min(1).max(50),
   price: z.number().int().positive(),
   durationHours: z.number().int().positive().default(24),
+  cpcPrice: z.number().min(0).default(0),
 });
 
 // GET /api/channels — browse active channels (catalog)
@@ -99,6 +101,7 @@ channelsRouter.post('/', async (req, res) => {
       body.category,
       body.price,
       body.durationHours,
+      body.cpcPrice,
     );
 
     await updateChannelBotAdmin(channel.id, true);
@@ -111,6 +114,39 @@ channelsRouter.post('/', async (req, res) => {
     }
     console.error('[api] POST /channels error:', err);
     res.status(500).json({ error: 'Failed to create channel' });
+  }
+});
+
+// POST /api/channels/:id/activate — reactivate channel (owner only)
+channelsRouter.post('/:id/activate', async (req, res) => {
+  try {
+    const channel = await getChannelById(Number(req.params.id));
+    if (!channel) {
+      res.status(404).json({ error: 'Channel not found' });
+      return;
+    }
+
+    const user = await getUserByTelegramId(req.telegramUser!.id);
+    if (!user || user.id !== channel.owner_id) {
+      res.status(403).json({ error: 'Not the owner of this channel' });
+      return;
+    }
+
+    // Verify bot is still admin before reactivating
+    const isAdmin = await isBotAdminOfChannel(channel.telegram_channel_id);
+    if (!isAdmin) {
+      res.status(400).json({
+        error: 'Bot is no longer an admin of this channel. Please add the bot as admin first.',
+      });
+      return;
+    }
+
+    await activateChannel(channel.id);
+    await updateChannelBotAdmin(channel.id, true);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[api] POST /channels/:id/activate error:', err);
+    res.status(500).json({ error: 'Failed to activate channel' });
   }
 });
 

@@ -27,6 +27,11 @@ export async function autoPostDeal(dealId: number): Promise<void> {
     return;
   }
 
+  // Build tracking URL if ad has a link
+  const trackingUrl = deal.ad_link
+    ? `${env.MINI_APP_URL.replace(/\/$/, '')}/api/click/${dealId}`
+    : null;
+
   // Attempt to post (retry up to 3 times with backoff)
   let messageId: number | null = null;
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -34,6 +39,7 @@ export async function autoPostDeal(dealId: number): Promise<void> {
       channel.telegram_channel_id,
       deal.ad_text,
       deal.ad_image_url,
+      trackingUrl,
     );
     if (messageId) break;
     if (attempt < 3) {
@@ -56,18 +62,23 @@ export async function autoPostDeal(dealId: number): Promise<void> {
 
   console.log(`[jobs] Deal ${dealId} posted to channel ${channel.username} (msg ${messageId})`);
 
-  // Start continuous monitoring
-  startMonitoring(dealId, env.POST_DURATION_MINUTES);
+  // For time-based deals, start monitoring. CPC deals run until budget is exhausted.
+  if (deal.pricing_model === 'cpc') {
+    // CPC deals: monitor for post deletion only (no time expiry)
+    startCpcMonitoring(dealId);
+  } else {
+    // Time-based deals: monitor for duration + post deletion
+    startMonitoring(dealId, env.POST_DURATION_MINUTES);
+  }
 }
 
 /**
- * Monitor a posted deal periodically until the full duration expires.
- * Checks every CHECK_INTERVAL. If post is deleted at any point → dispute → refund.
- * When full duration passes and post is still up → verified → completed.
+ * Monitor a time-based posted deal periodically until the full duration expires.
+ * Checks every CHECK_INTERVAL. If post is deleted at any point -> dispute -> refund.
+ * When full duration passes and post is still up -> verified -> completed.
  */
 function startMonitoring(dealId: number, durationMinutes: number): void {
   const totalMs = durationMinutes * 60 * 1000;
-  // Check interval: every 30s for short durations (demo), every 5 min for longer ones
   const checkIntervalMs = durationMinutes <= 5
     ? 30 * 1000       // 30 seconds for demo/short durations
     : 5 * 60 * 1000;  // 5 minutes for production durations
@@ -81,7 +92,6 @@ function startMonitoring(dealId: number, durationMinutes: number): void {
       const elapsed = Date.now() - startTime;
       const deal = await getDealById(dealId);
 
-      // Deal no longer in posted state — stop monitoring
       if (!deal || deal.status !== 'posted') {
         console.log(`[jobs] Deal ${dealId} no longer posted, stopping monitor`);
         stopMonitoring(dealId);
@@ -105,7 +115,6 @@ function startMonitoring(dealId: number, durationMinutes: number): void {
       );
 
       if (!alive) {
-        // Post was deleted — dispute and refund immediately
         stopMonitoring(dealId);
         await transitionDeal(dealId, 'posted', 'disputed');
         await refundEscrow(dealId, 'disputed', deal.price);
@@ -118,7 +127,6 @@ function startMonitoring(dealId: number, durationMinutes: number): void {
         return;
       }
 
-      // Duration complete — verify and release
       if (elapsed >= totalMs) {
         stopMonitoring(dealId);
         await transitionDeal(dealId, 'posted', 'verified', {
@@ -142,6 +150,133 @@ function startMonitoring(dealId: number, durationMinutes: number): void {
   }, checkIntervalMs);
 
   activeMonitors.set(dealId, interval);
+}
+
+/**
+ * Monitor a CPC deal for post deletion only. No time expiry — it runs until budget is exhausted.
+ * Checks every 5 minutes. If post is deleted, refund remaining budget.
+ */
+function startCpcMonitoring(dealId: number): void {
+  const checkIntervalMs = 5 * 60 * 1000; // every 5 min
+
+  console.log(`[jobs] CPC monitoring deal ${dealId} (checking every 5min for post deletion)`);
+
+  const interval = setInterval(async () => {
+    try {
+      const deal = await getDealById(dealId);
+
+      if (!deal || deal.status !== 'posted') {
+        console.log(`[jobs] CPC deal ${dealId} no longer posted, stopping monitor`);
+        stopMonitoring(dealId);
+        return;
+      }
+
+      if (!deal.posted_message_id) {
+        stopMonitoring(dealId);
+        return;
+      }
+
+      const channel = await getChannelById(deal.channel_id);
+      if (!channel) {
+        stopMonitoring(dealId);
+        return;
+      }
+
+      const alive = await isMessageAlive(
+        channel.telegram_channel_id,
+        Number(deal.posted_message_id),
+      );
+
+      if (!alive) {
+        // Post deleted — refund remaining budget (floor spent, refund the rest as integer Stars)
+        stopMonitoring(dealId);
+        const spent = Math.floor(Number(deal.budget_spent));
+        const remaining = deal.budget - spent;
+        await transitionDeal(dealId, 'posted', 'disputed');
+
+        if (remaining > 0) {
+          await refundEscrow(dealId, 'disputed', remaining);
+          console.log(`[jobs] CPC deal ${dealId} disputed — post deleted. Refunded ${remaining} Stars (spent ${deal.budget_spent}/${deal.budget})`);
+
+          await notifyUser(deal.advertiser_id,
+            `Your CPC ad in @${channel.username} was deleted by the owner. ${remaining} Stars refunded (${deal.click_count} clicks used).`);
+        } else {
+          // Budget was fully spent, just dispute
+          console.log(`[jobs] CPC deal ${dealId} disputed — post deleted. Budget fully spent.`);
+          await notifyUser(deal.advertiser_id,
+            `Your CPC ad in @${channel.username} was removed. Budget was fully spent (${deal.click_count} clicks).`);
+        }
+
+        await notifyUser(channel.owner_id,
+          `CPC ad in @${channel.username} (deal #${dealId}) was deleted. Advertiser notified.`);
+      }
+    } catch (err) {
+      console.error(`[jobs] CPC monitor error for deal ${dealId}:`, (err as Error).message);
+    }
+  }, checkIntervalMs);
+
+  activeMonitors.set(dealId, interval);
+}
+
+/**
+ * Complete a CPC deal when budget is exhausted.
+ * Removes the post from the channel, verifies, and releases earned amount.
+ */
+export async function completeCpcDeal(dealId: number): Promise<void> {
+  try {
+    const deal = await getDealById(dealId);
+    if (!deal || deal.status !== 'posted' || deal.pricing_model !== 'cpc') return;
+
+    stopMonitoring(dealId);
+
+    const channel = await getChannelById(deal.channel_id);
+
+    // Remove the post from the channel
+    if (channel && deal.posted_message_id) {
+      try {
+        await bot.api.deleteMessage(
+          channel.telegram_channel_id,
+          Number(deal.posted_message_id),
+        );
+        console.log(`[jobs] CPC deal ${dealId}: removed post from channel`);
+      } catch (err) {
+        console.warn(`[jobs] CPC deal ${dealId}: could not remove post:`, (err as Error).message);
+      }
+    }
+
+    // Verify and complete — release the spent amount
+    await transitionDeal(dealId, 'posted', 'verified', {
+      verified_at: new Date(),
+    });
+
+    // Floor spent amount (Stars are integers); remainder goes back to advertiser
+    const spentAmount = Math.floor(Number(deal.budget_spent));
+    const remainingBudget = deal.budget - spentAmount;
+
+    // Release the spent amount to the owner
+    const { releaseEscrow } = await import('../escrow/transitions.js');
+    await releaseEscrow(dealId, spentAmount);
+
+    // If there's unspent budget, refund it (integer Stars)
+    if (remainingBudget > 0) {
+      const { createTransaction } = await import('../db/queries.js');
+      await createTransaction(dealId, 'refund', remainingBudget);
+      console.log(`[jobs] CPC deal ${dealId}: refunded ${remainingBudget} Stars unspent budget`);
+    }
+
+    console.log(`[jobs] CPC deal ${dealId} completed: ${deal.click_count + 1} clicks, ${spentAmount} Stars spent, ${remainingBudget} Stars refunded`);
+
+    // Notify users
+    const channelName = channel ? `@${channel.username}` : `channel #${deal.channel_id}`;
+    await notifyUser(deal.advertiser_id,
+      `Your CPC ad in ${channelName} is complete! Budget used: ${spentAmount}/${deal.budget} Stars (${deal.click_count + 1} clicks).${remainingBudget > 0 ? ` ${remainingBudget} Stars refunded.` : ''}`);
+    if (channel) {
+      await notifyUser(channel.owner_id,
+        `CPC ad in ${channelName} (deal #${dealId}) completed. ${spentAmount} Stars earned from ${deal.click_count + 1} clicks!`);
+    }
+  } catch (err) {
+    console.error(`[jobs] completeCpcDeal error for deal ${dealId}:`, (err as Error).message);
+  }
 }
 
 /**
@@ -173,10 +308,6 @@ async function notifyUser(userId: number, message: string): Promise<void> {
   }
 }
 
-/**
- * Notify a user by their DB user ID.
- * Exported for use in other modules.
- */
 export { notifyUser };
 
 /**
@@ -190,11 +321,24 @@ export async function resumePostedDeals(): Promise<void> {
   for (const deal of rows) {
     if (!deal.posted_at) continue;
 
+    if (deal.pricing_model === 'cpc') {
+      // CPC deal: check if budget exhausted, otherwise resume CPC monitoring
+      if (deal.budget_spent >= deal.budget) {
+        console.log(`[jobs] CPC deal ${deal.id} budget exhausted on resume, completing`);
+        completeCpcDeal(deal.id).catch((err) =>
+          console.error(`[jobs] Resume CPC completion error:`, err));
+      } else {
+        console.log(`[jobs] Resuming CPC monitoring for deal ${deal.id} (${deal.budget - deal.budget_spent} Stars remaining)`);
+        startCpcMonitoring(deal.id);
+      }
+      continue;
+    }
+
+    // Time-based deal
     const elapsed = Date.now() - new Date(deal.posted_at).getTime();
     const totalMs = env.POST_DURATION_MINUTES * 60 * 1000;
 
     if (elapsed >= totalMs) {
-      // Duration already passed while we were down — verify immediately
       console.log(`[jobs] Deal ${deal.id} duration already passed, verifying now`);
       try {
         const channel = await getChannelById(deal.channel_id);
@@ -219,7 +363,6 @@ export async function resumePostedDeals(): Promise<void> {
         console.error(`[jobs] Resume error for deal ${deal.id}:`, (err as Error).message);
       }
     } else {
-      // Still within duration — resume monitoring with remaining time
       const remainingMinutes = (totalMs - elapsed) / 60000;
       console.log(`[jobs] Resuming monitoring for deal ${deal.id} (${Math.round(remainingMinutes * 10) / 10} min remaining)`);
       startMonitoring(deal.id, remainingMinutes);

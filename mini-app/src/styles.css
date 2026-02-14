@@ -10,14 +10,14 @@
   --fox-orange: #ff6b2b;
   --fox-amber: #ff8c42;
   --fox-gold: #ffa552;
-  --fox-dark: #1a1a2e;
-  --fox-card: #222240;
-  --fox-card-hover: #2a2a4a;
   --fox-success: #2ecc71;
   --fox-danger: #e74c3c;
   --fox-info: #3498db;
   --radius: 14px;
   --radius-sm: 10px;
+
+  /* Theme-adaptive borders & separators */
+  --border-subtle: var(--tg-theme-hint-color, rgba(128,128,128,0.15));
 }
 
 * {
@@ -79,7 +79,7 @@ body {
 .nav {
   display: flex;
   gap: 4px;
-  background: var(--fox-card);
+  background: var(--tg-secondary-bg);
   border-radius: var(--radius);
   padding: 4px;
   margin-bottom: 14px;
@@ -109,6 +109,7 @@ body {
   font-size: 18px;
   font-weight: 700;
   margin-bottom: 4px;
+  color: var(--tg-text);
 }
 
 .section-subtitle {
@@ -119,7 +120,7 @@ body {
 
 /* Cards */
 .card {
-  background: var(--fox-card);
+  background: var(--tg-secondary-bg);
   border-radius: var(--radius);
   padding: 16px;
   margin-bottom: 12px;
@@ -146,6 +147,7 @@ body {
 .card-title {
   font-size: 16px;
   font-weight: 700;
+  color: var(--tg-text);
 }
 
 .card-subtitle {
@@ -171,22 +173,22 @@ body {
   align-items: center;
   margin-top: 10px;
   padding-top: 10px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: 1px solid color-mix(in srgb, var(--tg-hint) 18%, transparent);
 }
 
 /* Status badges */
 .status-created,
-.status-pending_approval { background: rgba(255, 193, 7, 0.15); color: #ffc107; }
-.status-approved { background: rgba(52, 152, 219, 0.15); color: #3498db; }
-.status-escrow_held { background: rgba(46, 204, 113, 0.15); color: #2ecc71; }
-.status-posted { background: rgba(255, 140, 66, 0.15); color: var(--fox-amber); }
+.status-pending_approval { background: rgba(255, 193, 7, 0.15); color: #e6a800; }
+.status-approved { background: rgba(52, 152, 219, 0.15); color: #2980b9; }
+.status-escrow_held { background: rgba(46, 204, 113, 0.15); color: #27ae60; }
+.status-posted { background: rgba(255, 140, 66, 0.15); color: #e67e22; }
 .status-verified,
-.status-completed { background: rgba(46, 204, 113, 0.15); color: #2ecc71; }
+.status-completed { background: rgba(46, 204, 113, 0.15); color: #27ae60; }
 .status-rejected,
-.status-expired { background: rgba(231, 76, 60, 0.15); color: #e74c3c; }
+.status-expired { background: rgba(231, 76, 60, 0.15); color: #c0392b; }
 .status-disputed,
-.status-refunded { background: rgba(231, 76, 60, 0.15); color: #e74c3c; }
-.status-cancelled { background: rgba(139, 139, 158, 0.15); color: var(--tg-hint); }
+.status-refunded { background: rgba(231, 76, 60, 0.15); color: #c0392b; }
+.status-cancelled { background: color-mix(in srgb, var(--tg-hint) 15%, transparent); color: var(--tg-hint); }
 
 /* Buttons */
 .btn {
@@ -227,9 +229,9 @@ body {
 }
 
 .btn-secondary {
-  background: var(--fox-card);
+  background: var(--tg-secondary-bg);
   color: var(--tg-text);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid color-mix(in srgb, var(--tg-hint) 20%, transparent);
 }
 
 .btn + .btn {
@@ -256,10 +258,10 @@ body {
 .form-select {
   width: 100%;
   padding: 12px 14px;
-  border: 1.5px solid rgba(255, 255, 255, 0.08);
+  border: 1.5px solid color-mix(in srgb, var(--tg-hint) 25%, transparent);
   border-radius: var(--radius-sm);
   font-size: 15px;
-  background: var(--fox-card);
+  background: var(--tg-secondary-bg);
   color: var(--tg-text);
   outline: none;
   transition: border-color 0.2s;
@@ -278,7 +280,8 @@ body {
 }
 
 .form-select option {
-  background: var(--fox-dark);
+  background: var(--tg-bg);
+  color: var(--tg-text);
 }
 
 /* Detail page */
@@ -290,6 +293,7 @@ body {
 .detail-title {
   font-size: 24px;
   font-weight: 800;
+  color: var(--tg-text);
 }
 
 .detail-price {
@@ -319,8 +323,9 @@ body {
   display: flex;
   justify-content: space-between;
   padding: 12px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid color-mix(in srgb, var(--tg-hint) 15%, transparent);
   font-size: 14px;
+  color: var(--tg-text);
 }
 
 .detail-row span {
@@ -332,7 +337,7 @@ body {
 }
 
 .ad-preview {
-  background: var(--fox-card);
+  background: var(--tg-secondary-bg);
   border-radius: var(--radius);
   padding: 16px;
   margin-top: 8px;
@@ -340,6 +345,7 @@ body {
   font-size: 14px;
   line-height: 1.6;
   border-left: 3px solid var(--fox-orange);
+  color: var(--tg-text);
 }
 
 /* Utility */
@@ -400,7 +406,7 @@ body {
 
 .separator {
   height: 1px;
-  background: rgba(255, 255, 255, 0.06);
+  background: color-mix(in srgb, var(--tg-hint) 15%, transparent);
   margin: 20px 0;
 }
 
@@ -434,6 +440,36 @@ body {
 .info-card.info {
   background: rgba(255, 140, 66, 0.1);
   border: 1px solid rgba(255, 140, 66, 0.2);
+}
+
+/* ─── Earnings Grid ─── */
+.earnings-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.earnings-card {
+  background: var(--tg-secondary-bg);
+  border-radius: var(--radius);
+  padding: 14px;
+  text-align: center;
+}
+
+.earnings-card-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--tg-hint);
+  margin-bottom: 6px;
+}
+
+.earnings-card-value {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--tg-text);
 }
 
 /* ─── Splash Screen ─── */
@@ -646,5 +682,16 @@ body {
   width: 52px;
   height: 52px;
   object-fit: contain;
+  border-radius: 50%;
+}
+
+/* Dark theme: blend black bg away; Light theme: just show the circular logo */
+[data-theme="dark"] .brand-logo-img {
   mix-blend-mode: lighten;
+  border-radius: 0;
+}
+
+/* Light theme adjustments */
+[data-theme="light"] .brand-logo-img {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
 }

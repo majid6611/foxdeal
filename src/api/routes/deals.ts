@@ -20,16 +20,16 @@ const createDealSchema = z.object({
   channelId: z.number().int().positive(),
   adText: z.string().min(1).max(4096),
   adImageUrl: z.string().min(1).nullable().optional(),
+  adLink: z.string().url().nullable().optional(),
+  pricingModel: z.enum(['time', 'cpc']).default('time'),
+  budget: z.number().int().positive().optional(),
 });
 
-// GET /api/deals — deals for current user (as advertiser)
+// GET /api/deals
 dealsRouter.get('/', async (req, res) => {
   try {
     const user = await getUserByTelegramId(req.telegramUser!.id);
-    if (!user) {
-      res.json([]);
-      return;
-    }
+    if (!user) { res.json([]); return; }
     const deals = await getDealsByAdvertiser(user.id);
     res.json(deals);
   } catch (err) {
@@ -38,14 +38,11 @@ dealsRouter.get('/', async (req, res) => {
   }
 });
 
-// GET /api/deals/incoming — incoming deals for owner's channels
+// GET /api/deals/incoming
 dealsRouter.get('/incoming', async (req, res) => {
   try {
     const user = await getUserByTelegramId(req.telegramUser!.id);
-    if (!user) {
-      res.json([]);
-      return;
-    }
+    if (!user) { res.json([]); return; }
     const deals = await getIncomingDealsForOwner(user.id);
     res.json(deals);
   } catch (err) {
@@ -54,14 +51,11 @@ dealsRouter.get('/incoming', async (req, res) => {
   }
 });
 
-// GET /api/deals/:id — single deal detail
+// GET /api/deals/:id
 dealsRouter.get('/:id', async (req, res) => {
   try {
     const deal = await getDealById(Number(req.params.id));
-    if (!deal) {
-      res.status(404).json({ error: 'Deal not found' });
-      return;
-    }
+    if (!deal) { res.status(404).json({ error: 'Deal not found' }); return; }
     res.json(deal);
   } catch (err) {
     console.error('[api] GET /deals/:id error:', err);
@@ -74,30 +68,48 @@ dealsRouter.post('/', async (req, res) => {
   try {
     const body = createDealSchema.parse(req.body);
 
-    // Verify channel exists and is active
     const channel = await getChannelById(body.channelId);
     if (!channel || !channel.is_active) {
       res.status(400).json({ error: 'Channel not found or inactive' });
       return;
     }
 
-    // Upsert user as advertiser
+    // Validate CPC pricing
+    const isCpc = body.pricingModel === 'cpc';
+    if (isCpc) {
+      if (channel.cpc_price <= 0) {
+        res.status(400).json({ error: 'This channel does not support cost-per-click pricing' });
+        return;
+      }
+      if (!body.budget || body.budget < channel.cpc_price) {
+        res.status(400).json({ error: `Budget must be at least ${channel.cpc_price} Stars (1 click)` });
+        return;
+      }
+      if (!body.adLink) {
+        res.status(400).json({ error: 'CPC deals require a link for the inline button' });
+        return;
+      }
+    }
+
     const user = await upsertUser(req.telegramUser!.id, 'advertiser');
 
-    // Create deal
+    // For CPC, price = budget; for time, price = channel.price
+    const dealPrice = isCpc ? body.budget! : channel.price;
+
     const deal = await createDeal(
       user.id,
       body.channelId,
       body.adText,
       body.adImageUrl ?? null,
+      body.adLink ?? null,
       channel.duration_hours,
-      channel.price,
+      dealPrice,
+      body.pricingModel,
+      isCpc ? body.budget! : 0,
     );
 
-    // Immediately transition to pending_approval
     const updated = await transitionDeal(deal.id, 'created', 'pending_approval');
 
-    // Notify channel owner
     notifyOwnerNewDeal(updated).catch((e) =>
       console.error('[api] notify owner error:', e),
     );
@@ -108,7 +120,6 @@ dealsRouter.post('/', async (req, res) => {
       res.status(400).json({ error: 'Invalid input', details: err.errors });
       return;
     }
-    // Check for duplicate deal constraint
     if ((err as any)?.constraint === 'idx_deals_active_unique') {
       res.status(409).json({ error: 'You already have an active deal for this channel. Cancel or wait for it to complete before creating a new one.' });
       return;
@@ -118,16 +129,12 @@ dealsRouter.post('/', async (req, res) => {
   }
 });
 
-// POST /api/deals/:id/approve — owner approves a deal
+// POST /api/deals/:id/approve
 dealsRouter.post('/:id/approve', async (req, res) => {
   try {
     const deal = await getDealById(Number(req.params.id));
-    if (!deal) {
-      res.status(404).json({ error: 'Deal not found' });
-      return;
-    }
+    if (!deal) { res.status(404).json({ error: 'Deal not found' }); return; }
 
-    // Verify the current user is the channel owner
     const channel = await getChannelById(deal.channel_id);
     const user = await getUserByTelegramId(req.telegramUser!.id);
     if (!channel || !user || channel.owner_id !== user.id) {
@@ -136,12 +143,7 @@ dealsRouter.post('/:id/approve', async (req, res) => {
     }
 
     const updated = await transitionDeal(deal.id, 'pending_approval', 'approved');
-
-    // Notify advertiser
-    notifyAdvertiserApproved(updated).catch((e) =>
-      console.error('[api] notify advertiser approved error:', e),
-    );
-
+    notifyAdvertiserApproved(updated).catch((e) => console.error('[api] notify error:', e));
     res.json(updated);
   } catch (err) {
     console.error('[api] POST /deals/:id/approve error:', err);
@@ -149,21 +151,14 @@ dealsRouter.post('/:id/approve', async (req, res) => {
   }
 });
 
-// POST /api/deals/:id/reject — owner rejects a deal
+// POST /api/deals/:id/reject
 dealsRouter.post('/:id/reject', async (req, res) => {
   try {
-    const reasonSchema = z.object({
-      reason: z.string().min(1).max(500).optional(),
-    });
-    const { reason } = reasonSchema.parse(req.body);
+    const { reason } = z.object({ reason: z.string().min(1).max(500).optional() }).parse(req.body);
 
     const deal = await getDealById(Number(req.params.id));
-    if (!deal) {
-      res.status(404).json({ error: 'Deal not found' });
-      return;
-    }
+    if (!deal) { res.status(404).json({ error: 'Deal not found' }); return; }
 
-    // Verify the current user is the channel owner
     const channel = await getChannelById(deal.channel_id);
     const user = await getUserByTelegramId(req.telegramUser!.id);
     if (!channel || !user || channel.owner_id !== user.id) {
@@ -174,12 +169,7 @@ dealsRouter.post('/:id/reject', async (req, res) => {
     const updated = await transitionDeal(deal.id, 'pending_approval', 'rejected', {
       rejection_reason: reason ?? null,
     });
-
-    // Notify advertiser
-    notifyAdvertiserRejected(updated).catch((e) =>
-      console.error('[api] notify advertiser rejected error:', e),
-    );
-
+    notifyAdvertiserRejected(updated).catch((e) => console.error('[api] notify error:', e));
     res.json(updated);
   } catch (err) {
     if (err instanceof z.ZodError) {
@@ -191,23 +181,18 @@ dealsRouter.post('/:id/reject', async (req, res) => {
   }
 });
 
-// POST /api/deals/:id/cancel — advertiser cancels a deal (before payment)
+// POST /api/deals/:id/cancel
 dealsRouter.post('/:id/cancel', async (req, res) => {
   try {
     const deal = await getDealById(Number(req.params.id));
-    if (!deal) {
-      res.status(404).json({ error: 'Deal not found' });
-      return;
-    }
+    if (!deal) { res.status(404).json({ error: 'Deal not found' }); return; }
 
-    // Only the advertiser can cancel
     const user = await getUserByTelegramId(req.telegramUser!.id);
     if (!user || user.id !== deal.advertiser_id) {
       res.status(403).json({ error: 'Only the advertiser can cancel this deal' });
       return;
     }
 
-    // Can only cancel before payment (created, pending_approval, approved)
     const cancellableStatuses = ['created', 'pending_approval', 'approved'];
     if (!cancellableStatuses.includes(deal.status)) {
       res.status(400).json({ error: 'This deal can no longer be cancelled' });

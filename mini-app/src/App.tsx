@@ -5,6 +5,7 @@ import { DealDetail } from './pages/DealDetail';
 import { MyDeals } from './pages/MyDeals';
 import { ListChannel } from './pages/ListChannel';
 import { MyChannel } from './pages/MyChannel';
+import { Earnings } from './pages/Earnings';
 import type { Channel } from './api';
 import './styles.css';
 
@@ -15,7 +16,8 @@ type Page =
   | { name: 'my-deals' }
   | { name: 'incoming' }
   | { name: 'list-channel' }
-  | { name: 'my-channels' };
+  | { name: 'my-channels' }
+  | { name: 'earnings' };
 
 export function App() {
   const [page, setPage] = useState<Page>({ name: 'catalog' });
@@ -28,6 +30,10 @@ export function App() {
   useEffect(() => {
     tg?.ready();
     tg?.expand();
+
+    // Detect light/dark theme and set a CSS class on <html>
+    const colorScheme = tg?.colorScheme || 'dark';
+    document.documentElement.setAttribute('data-theme', colorScheme);
 
     // Show splash for 2 seconds, then fade out over 0.5s
     const fadeTimer = setTimeout(() => setSplashFading(true), 2000);
@@ -99,6 +105,8 @@ export function App() {
             onBack={() => setPage({ name: 'incoming' })}
           />
         );
+      case 'earnings':
+        return <Earnings />;
     }
   };
 
@@ -183,7 +191,13 @@ export function App() {
             className={`nav-btn ${page.name === 'my-channels' || page.name === 'list-channel' ? 'active' : ''}`}
             onClick={() => setPage({ name: 'my-channels' })}
           >
-            My Channels
+            Channels
+          </button>
+          <button
+            className={`nav-btn ${page.name === 'earnings' ? 'active' : ''}`}
+            onClick={() => setPage({ name: 'earnings' })}
+          >
+            Earnings
           </button>
         </div>
       )}

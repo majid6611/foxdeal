@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getMyChannels, deleteChannel, createChannel, type Channel } from '../api';
+import { getMyChannels, deleteChannel, activateChannel, createChannel, type Channel } from '../api';
 
 const CATEGORIES = ['news', 'tech', 'crypto', 'entertainment', 'education', 'lifestyle', 'business', 'general'];
 
@@ -15,6 +15,7 @@ export function MyChannel({ onBack }: { onBack: () => void }) {
   const [category, setCategory] = useState('general');
   const [price, setPrice] = useState('');
   const [durationHours, setDurationHours] = useState('24');
+  const [cpcPrice, setCpcPrice] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   const loadChannels = () => {
@@ -44,9 +45,24 @@ export function MyChannel({ onBack }: { onBack: () => void }) {
     }
   };
 
+  const handleActivate = async (id: number) => {
+    setActionId(id);
+    setError('');
+    try {
+      await activateChannel(id);
+      setChannels((prev) => prev.map((ch) =>
+        ch.id === id ? { ...ch, is_active: true } : ch
+      ));
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setActionId(null);
+    }
+  };
+
   const handleAddChannel = async () => {
     if (!channelId.trim() || !price) {
-      setError('Please fill in all fields');
+      setError('Please fill in all required fields');
       return;
     }
 
@@ -59,12 +75,14 @@ export function MyChannel({ onBack }: { onBack: () => void }) {
         category,
         price: Number(price),
         durationHours: Number(durationHours),
+        cpcPrice: cpcPrice ? Number(cpcPrice) : 0,
       });
       // Reset form and reload list
       setChannelId('');
       setCategory('general');
       setPrice('');
       setDurationHours('24');
+      setCpcPrice('');
       setShowForm(false);
       loadChannels();
     } catch (e) {
@@ -122,6 +140,11 @@ export function MyChannel({ onBack }: { onBack: () => void }) {
             </select>
           </div>
 
+          <div className="separator" style={{ margin: '12px 0' }} />
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--tg-text)', marginBottom: 10 }}>
+            Time-based Pricing
+          </div>
+
           <div className="form-group">
             <label className="form-label">Price (Telegram Stars)</label>
             <input
@@ -143,6 +166,27 @@ export function MyChannel({ onBack }: { onBack: () => void }) {
               placeholder="24"
               value={durationHours}
               onChange={(e) => setDurationHours(e.target.value)}
+            />
+          </div>
+
+          <div className="separator" style={{ margin: '12px 0' }} />
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--tg-text)', marginBottom: 4 }}>
+            Cost-per-Click Pricing (optional)
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--tg-hint)', marginBottom: 10 }}>
+            Set a per-click price so advertisers can pay only for clicks. Leave empty to disable CPC.
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">CPC Price (Stars per click)</label>
+            <input
+              className="form-input"
+              type="number"
+              min="0.1"
+              step="0.1"
+              placeholder="e.g. 0.5 or 5 (leave empty to disable)"
+              value={cpcPrice}
+              onChange={(e) => setCpcPrice(e.target.value)}
             />
           </div>
 
@@ -184,20 +228,22 @@ export function MyChannel({ onBack }: { onBack: () => void }) {
                 <strong>{ch.subscribers.toLocaleString()}</strong>
               </div>
               <div className="detail-row">
-                <span>Price</span>
-                <strong className="price-tag">{ch.price} Stars</strong>
+                <span>Time Price</span>
+                <strong className="price-tag">{ch.price} Stars / {ch.duration_hours}h</strong>
               </div>
-              <div className="detail-row">
-                <span>Duration</span>
-                <strong>{ch.duration_hours}h</strong>
-              </div>
+              {ch.cpc_price > 0 && (
+                <div className="detail-row">
+                  <span>CPC Price</span>
+                  <strong style={{ color: '#27bcff' }}>{ch.cpc_price} Stars/click</strong>
+                </div>
+              )}
               <div className="detail-row">
                 <span>Bot Admin</span>
                 <strong>{ch.bot_is_admin ? 'Yes' : 'No'}</strong>
               </div>
             </div>
 
-            {ch.is_active && (
+            {ch.is_active ? (
               <button
                 className="btn btn-danger"
                 style={{ marginTop: 12 }}
@@ -205,6 +251,15 @@ export function MyChannel({ onBack }: { onBack: () => void }) {
                 disabled={actionId === ch.id}
               >
                 {actionId === ch.id ? 'Deactivating...' : 'Deactivate Channel'}
+              </button>
+            ) : (
+              <button
+                className="btn btn-primary"
+                style={{ marginTop: 12 }}
+                onClick={() => handleActivate(ch.id)}
+                disabled={actionId === ch.id}
+              >
+                {actionId === ch.id ? 'Activating...' : 'Activate Channel'}
               </button>
             )}
           </div>

@@ -32,6 +32,7 @@ export interface Channel {
   category: string;
   price: number;
   duration_hours: number;
+  cpc_price: number;
   bot_is_admin: boolean;
   is_active: boolean;
 }
@@ -42,6 +43,11 @@ export interface Deal {
   channel_id: number;
   ad_text: string;
   ad_image_url: string | null;
+  ad_link: string | null;
+  click_count: number;
+  pricing_model: 'time' | 'cpc';
+  budget: number;
+  budget_spent: number;
   duration_hours: number;
   price: number;
   status: string;
@@ -64,9 +70,12 @@ export const createChannel = (data: {
   category: string;
   price: number;
   durationHours: number;
+  cpcPrice?: number;
 }) => request<Channel>('/channels', { method: 'POST', body: JSON.stringify(data) });
 export const deleteChannel = (id: number) =>
   request<{ success: boolean }>(`/channels/${id}`, { method: 'DELETE' });
+export const activateChannel = (id: number) =>
+  request<{ success: boolean }>(`/channels/${id}/activate`, { method: 'POST' });
 
 // Deals
 export const getMyDeals = () => request<Deal[]>('/deals');
@@ -76,6 +85,9 @@ export const createDeal = (data: {
   channelId: number;
   adText: string;
   adImageUrl?: string | null;
+  adLink?: string | null;
+  pricingModel?: 'time' | 'cpc';
+  budget?: number;
 }) => request<Deal>('/deals', { method: 'POST', body: JSON.stringify(data) });
 export const approveDeal = (id: number) =>
   request<Deal>(`/deals/${id}/approve`, { method: 'POST' });
@@ -85,6 +97,33 @@ export const requestPayment = (id: number) =>
   request<{ invoiceLink: string }>(`/deals/${id}/pay`, { method: 'POST' });
 export const cancelDeal = (id: number) =>
   request<Deal>(`/deals/${id}/cancel`, { method: 'POST' });
+
+// Earnings
+export interface EarningsSummary {
+  total_earned: number;
+  total_pending: number;
+  total_paid: number;
+  platform_fees: number;
+  next_payout_at: string | null;
+  next_payout_amount: number;
+}
+
+export interface EarningRecord {
+  id: number;
+  deal_id: number;
+  channel_id: number;
+  channel_username: string;
+  gross_amount: number;
+  platform_fee: number;
+  net_amount: number;
+  status: 'pending' | 'paid';
+  earned_at: string;
+  payout_at: string;
+  paid_at: string | null;
+}
+
+export const getEarnings = () =>
+  request<{ summary: EarningsSummary; history: EarningRecord[] }>('/earnings');
 
 // Upload
 export async function uploadImage(file: File): Promise<string> {

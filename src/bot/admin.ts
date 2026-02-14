@@ -39,20 +39,29 @@ export async function getChannelInfo(channelId: string | number) {
 
 /**
  * Post a message to a channel. Returns the message ID or null on failure.
+ * If a trackingUrl is provided, an inline "Learn More" button is added.
  */
 export async function postToChannel(
   channelId: string | number,
   text: string,
   imageUrl?: string | null,
+  trackingUrl?: string | null,
 ): Promise<number | null> {
   try {
+    const reply_markup = trackingUrl
+      ? { inline_keyboard: [[{ text: '🔗 Learn More', url: trackingUrl }]] }
+      : undefined;
+
     if (imageUrl) {
       // Convert relative URLs to absolute (Telegram needs a public URL)
       const fullUrl = resolveImageUrl(imageUrl);
-      const msg = await bot.api.sendPhoto(channelId, fullUrl, { caption: text });
+      const msg = await bot.api.sendPhoto(channelId, fullUrl, {
+        caption: text,
+        reply_markup,
+      });
       return msg.message_id;
     }
-    const msg = await bot.api.sendMessage(channelId, text);
+    const msg = await bot.api.sendMessage(channelId, text, { reply_markup });
     return msg.message_id;
   } catch (err) {
     console.error(`[bot] Failed to post to channel ${channelId}:`, (err as Error).message);
