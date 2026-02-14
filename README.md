@@ -88,7 +88,7 @@ APPROVAL_TIMEOUT_HOURS=24
 The app expects an external Docker network (to share with your PostgreSQL and Nginx containers). Create it if it doesn't exist:
 
 ```bash
-docker network create dolphia
+docker network create YOUR_NETWORK_NAME
 ```
 
 > **Note:** If your network has a different name, update `docker-compose.yml` under `networks`.
