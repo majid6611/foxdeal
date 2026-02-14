@@ -1,5 +1,13 @@
 import { useEffect, useState } from 'react';
-import { getDeal, approveDeal, rejectDeal, requestPayment, cancelDeal, type Deal } from '../api';
+import { getDeal, approveDeal, rejectDeal, requestPayment, confirmPayment, cancelDeal, type Deal } from '../api';
+import { useTonConnectUI, useTonWallet } from '@tonconnect/ui-react';
+import { beginCell } from '@ton/core';
+import { Button, Group, GroupItem, Text, Spinner } from '@telegram-tools/ui-kit';
+
+function encodeComment(text: string): string {
+  const cell = beginCell().storeUint(0, 32).storeStringTail(text).endCell();
+  return cell.toBoc().toString('base64');
+}
 
 const STATUS_LABELS: Record<string, string> = {
   created: 'Created',
@@ -17,6 +25,26 @@ const STATUS_LABELS: Record<string, string> = {
   cancelled: 'Cancelled',
 };
 
+function statusColor(s: string): string {
+  if (['completed', 'verified'].includes(s)) return '#34c759';
+  if (['posted', 'escrow_held'].includes(s)) return '#007aff';
+  if (['rejected', 'refunded', 'cancelled', 'disputed'].includes(s)) return '#ff3b30';
+  if (['approved'].includes(s)) return '#ff9500';
+  return '#8e8e93';
+}
+
+function statusIcon(s: string): string {
+  if (['completed', 'verified'].includes(s)) return '✅';
+  if (['posted'].includes(s)) return '📡';
+  if (['escrow_held'].includes(s)) return '🔒';
+  if (['approved'].includes(s)) return '💳';
+  if (['pending_approval', 'pending_admin'].includes(s)) return '⏳';
+  if (['rejected'].includes(s)) return '❌';
+  if (['refunded'].includes(s)) return '↩️';
+  if (['cancelled'].includes(s)) return '🚫';
+  return '📋';
+}
+
 export function DealDetail({
   dealId,
   isOwner,
@@ -32,6 +60,8 @@ export function DealDetail({
   const [actionLoading, setActionLoading] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [showRejectForm, setShowRejectForm] = useState(false);
+  const [tonConnectUI] = useTonConnectUI();
+  const wallet = useTonWallet();
 
   const fetchDeal = () => {
     getDeal(dealId)
@@ -48,350 +78,189 @@ export function DealDetail({
 
   const handleApprove = async () => {
     setActionLoading(true);
-    try {
-      const updated = await approveDeal(dealId);
-      setDeal(updated);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setActionLoading(false);
-    }
+    try { const updated = await approveDeal(dealId); setDeal(updated); }
+    catch (e) { setError((e as Error).message); }
+    finally { setActionLoading(false); }
   };
 
   const handleReject = async () => {
     setActionLoading(true);
-    try {
-      const updated = await rejectDeal(dealId, rejectReason || undefined);
-      setDeal(updated);
-      setShowRejectForm(false);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setActionLoading(false);
-    }
+    try { const updated = await rejectDeal(dealId, rejectReason || undefined); setDeal(updated); setShowRejectForm(false); }
+    catch (e) { setError((e as Error).message); }
+    finally { setActionLoading(false); }
   };
 
-  if (loading) return <div className="loading">Loading deal...</div>;
-  if (error && !deal) return <div className="error">{error}</div>;
-  if (!deal) return <div className="error">Deal not found</div>;
+  if (loading) return <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><Spinner size="32px" /></div>;
+  if (error && !deal) return <Text color="danger">{error}</Text>;
+  if (!deal) return <Text color="danger">Deal not found</Text>;
 
   const isCpc = deal.pricing_model === 'cpc';
   const spent = Number(deal.budget_spent);
   const budgetRemaining = isCpc ? deal.budget - spent : 0;
-  const budgetPercent = isCpc && deal.budget > 0
-    ? Math.round((spent / deal.budget) * 100)
-    : 0;
-  const formatSpent = (v: number) => v % 1 === 0 ? String(v) : v.toFixed(2);
+  const budgetPercent = isCpc && deal.budget > 0 ? Math.round((spent / deal.budget) * 100) : 0;
+  const fmt = (v: number) => v % 1 === 0 ? String(v) : v.toFixed(2);
+
+  const bannerClass =
+    ['posted', 'escrow_held'].includes(deal.status) ? 'blue' :
+    ['completed', 'verified'].includes(deal.status) ? 'success' :
+    ['rejected', 'refunded'].includes(deal.status) ? 'danger' :
+    ['cancelled', 'expired', 'disputed'].includes(deal.status) ? 'neutral' : 'info';
+
+  const bannerDesc: Record<string, string> = {
+    posted: isCpc
+      ? `${fmt(budgetRemaining)} TON remaining · ${deal.click_count} clicks`
+      : 'Bot will verify when the timer expires',
+    completed: isCpc
+      ? `${deal.click_count} clicks delivered · ${fmt(spent)} TON spent`
+      : `Payment of ${deal.price} TON released`,
+    refunded: `${deal.price} TON refunded to advertiser`,
+    pending_admin: 'Under review by the Fox Deal team',
+    pending_approval: 'Waiting for channel owner approval',
+    approved: 'Ready for payment',
+    cancelled: 'This deal was cancelled',
+    escrow_held: 'Payment received, ad will be posted shortly',
+  };
 
   return (
     <div>
       <button className="back-btn" onClick={onBack}>← Back</button>
 
-      <div className="detail-header">
-        <div className="detail-title">Deal #{deal.id}</div>
-        <div style={{ marginTop: 8, display: 'flex', gap: 6, alignItems: 'center' }}>
-          <span className={`card-badge status-${deal.status}`}>
-            {STATUS_LABELS[deal.status] ?? deal.status}
-          </span>
-          <span className="card-badge" style={{
-            background: isCpc ? 'rgba(39, 188, 255, 0.12)' : 'rgba(255, 107, 43, 0.12)',
-            color: isCpc ? '#27bcff' : '#ff6b2b',
-          }}>
-            {isCpc ? 'CPC' : 'Time-based'}
-          </span>
+      {/* Status Banner */}
+      <div className={`deal-banner ${bannerClass}`}>
+        <div className="deal-banner-icon">{statusIcon(deal.status)}</div>
+        <div className="deal-banner-text">
+          <div className="deal-banner-title">{STATUS_LABELS[deal.status] ?? deal.status}</div>
+          {bannerDesc[deal.status] && (
+            <div className="deal-banner-desc">{bannerDesc[deal.status]}</div>
+          )}
         </div>
-        <div className="detail-price">{deal.price} Stars</div>
+      </div>
+
+      {/* Title row */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <Text type="title2" weight="bold">Deal #{deal.id}</Text>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <span className={`badge ${isCpc ? 'badge-cpc' : 'badge-time'}`}>{isCpc ? 'CPC' : 'TIME'}</span>
+          <span className="badge badge-price">{deal.price} TON</span>
+        </div>
       </div>
 
       {error && <div className="error">{error}</div>}
 
-      <div className="detail-section">
-        <h3>Ad Preview</h3>
-        {deal.ad_image_url && (
-          <img
-            src={deal.ad_image_url}
-            alt="Ad image"
-            style={{
-              width: '100%',
-              maxHeight: 250,
-              objectFit: 'cover',
-              borderRadius: 8,
-              marginBottom: 8,
-            }}
-          />
-        )}
-        <div className="ad-preview">{deal.ad_text}</div>
+      {/* Ad Preview */}
+      {deal.ad_image_url && (
+        <img src={deal.ad_image_url} alt="Ad" style={{ width: '100%', maxHeight: 250, objectFit: 'cover', borderRadius: 12, marginBottom: 12 }} />
+      )}
+
+      <div className="ad-preview-card">
+        <div className="ad-preview-text">{deal.ad_text}</div>
         {deal.ad_link && (
-          <div style={{
-            marginTop: 8,
-            padding: '10px 14px',
-            background: 'var(--tg-secondary-bg)',
-            borderRadius: 'var(--radius-sm)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            fontSize: 13,
-          }}>
+          <div className="ad-preview-link" onClick={() => window.open(deal.ad_link!, '_blank')}>
             <span>🔗</span>
-            <a
-              href={deal.ad_link}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ color: 'var(--fox-amber)', textDecoration: 'none', wordBreak: 'break-all' }}
-            >
-              {deal.ad_link}
-            </a>
+            <a href={deal.ad_link} target="_blank" rel="noopener noreferrer">{deal.ad_link}</a>
+            <span style={{ color: 'var(--tg-hint)', fontSize: 16 }}>›</span>
           </div>
         )}
       </div>
 
-      <div className="detail-section">
-        <h3>Details</h3>
-
-        <div className="detail-row">
-          <span>Pricing</span>
-          <strong>{isCpc ? 'Cost per Click' : 'Time-based'}</strong>
-        </div>
-
+      {/* Stats */}
+      <Group header="Details">
+        <GroupItem text="Pricing" after={<Text type="body" weight="medium">{isCpc ? 'Cost per Click' : 'Time-based'}</Text>} />
         {isCpc ? (
           <>
-            <div className="detail-row">
-              <span>Budget</span>
-              <strong>{deal.budget} Stars</strong>
-            </div>
-            <div className="detail-row">
-              <span>Spent</span>
-              <strong style={{ color: 'var(--fox-amber)' }}>{formatSpent(spent)} Stars</strong>
-            </div>
-            <div className="detail-row">
-              <span>Remaining</span>
-              <strong style={{ color: budgetRemaining > 0 ? 'var(--fox-green)' : 'var(--tg-hint)' }}>
-                {formatSpent(budgetRemaining)} Stars
-              </strong>
-            </div>
-            <div className="detail-row">
-              <span>Clicks</span>
-              <strong style={{ color: 'var(--fox-amber)' }}>{deal.click_count}</strong>
-            </div>
-
-            {/* Budget progress bar */}
-            {deal.budget > 0 && (
-              <div style={{ marginTop: 8 }}>
-                <div style={{
-                  height: 8,
-                  borderRadius: 4,
-                  background: 'var(--tg-secondary-bg)',
-                  overflow: 'hidden',
-                }}>
-                  <div style={{
-                    height: '100%',
-                    width: `${Math.min(budgetPercent, 100)}%`,
-                    borderRadius: 4,
-                    background: budgetPercent >= 100
-                      ? 'var(--fox-green)'
-                      : 'linear-gradient(90deg, #ff6b2b, #ffb347)',
-                    transition: 'width 0.3s ease',
-                  }} />
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--tg-hint)', marginTop: 4, textAlign: 'right' }}>
-                  {budgetPercent}% used
-                </div>
-              </div>
-            )}
+            <GroupItem text="Budget" after={<Text type="body" weight="bold" color="accent">{deal.budget} TON</Text>} />
+            <GroupItem text="Spent" after={<Text type="body" weight="bold" color="accent">{fmt(spent)} TON</Text>} />
+            <GroupItem text="Remaining" after={<Text type="body" weight="bold" color={budgetRemaining > 0 ? 'accent' : 'secondary'}>{fmt(budgetRemaining)} TON</Text>} />
+            <GroupItem text="Unique Clicks" after={<Text type="body" weight="bold" color="accent">{deal.click_count}</Text>} />
           </>
         ) : (
           <>
-            <div className="detail-row">
-              <span>Duration</span>
-              <strong>{deal.duration_hours}h</strong>
-            </div>
+            <GroupItem text="Duration" after={<Text type="body" weight="medium">{deal.duration_hours}h</Text>} />
             {deal.ad_link && (
-              <div className="detail-row">
-                <span>Button Clicks</span>
-                <strong style={{ color: 'var(--fox-amber)' }}>{deal.click_count}</strong>
-              </div>
+              <GroupItem text="Link Clicks" after={<Text type="body" weight="bold" color="accent">{deal.click_count}</Text>} />
             )}
           </>
         )}
-
-        <div className="detail-row">
-          <span>Status</span>
-          <strong>{STATUS_LABELS[deal.status] ?? deal.status}</strong>
-        </div>
         {deal.posted_at && (
-          <div className="detail-row">
-            <span>Posted</span>
-            <strong>{new Date(deal.posted_at).toLocaleString()}</strong>
-          </div>
+          <GroupItem text="Posted" after={<Text type="caption1" color="secondary">{new Date(deal.posted_at).toLocaleString()}</Text>} />
         )}
         {deal.verified_at && (
-          <div className="detail-row">
-            <span>Verified</span>
-            <strong>{new Date(deal.verified_at).toLocaleString()}</strong>
-          </div>
+          <GroupItem text="Verified" after={<Text type="caption1" color="secondary">{new Date(deal.verified_at).toLocaleString()}</Text>} />
         )}
         {deal.rejection_reason && (
-          <div className="detail-row">
-            <span>Rejection reason</span>
-            <strong>{deal.rejection_reason}</strong>
-          </div>
+          <GroupItem text="Reason" description={deal.rejection_reason} />
         )}
-      </div>
+      </Group>
 
-      <div className="separator" />
+      {/* CPC progress */}
+      {isCpc && deal.budget > 0 && (
+        <div className="progress-bar-wrap">
+          <div className="progress-bar-track">
+            <div className={`progress-bar-fill ${budgetPercent >= 100 ? 'full' : ''}`} style={{ width: `${Math.min(budgetPercent, 100)}%` }} />
+          </div>
+          <div className="progress-bar-label">{budgetPercent}% budget used</div>
+        </div>
+      )}
 
-      {/* Owner actions: approve/reject when pending */}
+      {/* Owner actions */}
       {isOwner && deal.status === 'pending_approval' && (
-        <div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 16 }}>
           {showRejectForm ? (
-            <div>
-              <div className="form-group">
-                <label className="form-label">Rejection Reason (optional)</label>
-                <textarea
-                  className="form-textarea"
-                  placeholder="Why are you rejecting this ad?"
-                  value={rejectReason}
-                  onChange={(e) => setRejectReason(e.target.value)}
-                  style={{ minHeight: 80 }}
-                />
-              </div>
-              <button
-                className="btn btn-danger"
-                onClick={handleReject}
-                disabled={actionLoading}
-              >
-                {actionLoading ? 'Rejecting...' : 'Confirm Reject'}
-              </button>
-              <button
-                className="btn btn-secondary"
-                onClick={() => setShowRejectForm(false)}
-              >
-                Cancel
-              </button>
-            </div>
+            <>
+              <textarea
+                className="form-textarea"
+                placeholder="Why are you rejecting this ad?"
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                style={{ minHeight: 80 }}
+              />
+              <Button text={actionLoading ? 'Rejecting...' : 'Confirm Reject'} type="primary" onClick={handleReject} disabled={actionLoading} loading={actionLoading} className="btn-danger-override" />
+              <Button text="Cancel" type="secondary" onClick={() => setShowRejectForm(false)} />
+            </>
           ) : (
-            <div>
-              <button
-                className="btn btn-primary"
-                onClick={handleApprove}
-                disabled={actionLoading}
-              >
-                {actionLoading ? 'Approving...' : 'Approve Deal'}
-              </button>
-              <button
-                className="btn btn-danger"
-                onClick={() => setShowRejectForm(true)}
-                disabled={actionLoading}
-              >
-                Reject Deal
-              </button>
-            </div>
+            <>
+              <Button text={actionLoading ? 'Approving...' : 'Approve Deal'} type="primary" onClick={handleApprove} disabled={actionLoading} loading={actionLoading} />
+              <Button text="Reject Deal" type="secondary" onClick={() => setShowRejectForm(true)} disabled={actionLoading} className="btn-danger-override" />
+            </>
           )}
         </div>
       )}
 
-      {/* Advertiser: pay button when approved */}
+      {/* Pay button */}
       {!isOwner && deal.status === 'approved' && (
-        <div>
-          <button
-            className="btn btn-primary"
+        <div style={{ marginTop: 16 }}>
+          <Button
+            text={actionLoading ? 'Processing...' : `Pay ${deal.price} TON`}
+            type="primary"
             onClick={async () => {
-              setActionLoading(true);
-              setError('');
-              try {
-                const { invoiceLink } = await requestPayment(dealId);
-                const tg = window.Telegram?.WebApp;
-                if (tg?.openInvoice) {
-                  tg.openInvoice(invoiceLink, (status) => {
-                    if (status === 'paid') {
-                      fetchDeal();
-                    } else if (status === 'failed') {
-                      setError('Payment failed. Please try again.');
-                    }
-                  });
-                } else {
-                  setError('Payment is only available inside Telegram.');
-                }
-              } catch (e) {
-                setError((e as Error).message);
-              } finally {
-                setActionLoading(false);
-              }
+              setActionLoading(true); setError('');
+              try { await confirmPayment(dealId); fetchDeal(); }
+              catch (e) { setError((e as Error).message || 'Payment failed'); }
+              finally { setActionLoading(false); }
             }}
             disabled={actionLoading}
-          >
-            {actionLoading ? 'Loading...' : `Pay ${deal.price} Stars`}
-          </button>
+            loading={actionLoading}
+          />
         </div>
       )}
 
-      {/* Status messages */}
-      {deal.status === 'posted' && (
-        <div className="info-card info">
-          <p><strong>Ad is live!</strong></p>
-          <p style={{ fontSize: 13, color: 'var(--tg-hint)', marginTop: 4 }}>
-            {isCpc
-              ? `CPC ad is running. ${formatSpent(budgetRemaining)} Stars remaining (${deal.click_count} clicks so far). Post will be removed when budget runs out.`
-              : 'The bot will verify the post is still active after the timer expires.'}
-          </p>
-        </div>
-      )}
-
-      {deal.status === 'completed' && (
-        <div className="info-card success">
-          <p><strong>Deal completed!</strong></p>
-          <p style={{ fontSize: 13, marginTop: 4 }}>
-            {isCpc
-              ? `${deal.click_count} clicks delivered. ${formatSpent(spent)} Stars spent.${budgetRemaining > 0 ? ` ${formatSpent(budgetRemaining)} Stars refunded.` : ''}`
-              : `Payment of ${deal.price} Stars has been released.`}
-          </p>
-        </div>
-      )}
-
-      {deal.status === 'refunded' && (
-        <div className="info-card danger">
-          <p><strong>Refunded</strong></p>
-          <p style={{ fontSize: 13, marginTop: 4 }}>{deal.price} Stars have been refunded to the advertiser.</p>
-        </div>
-      )}
-
-      {deal.status === 'pending_admin' && (
-        <div className="info-card info">
-          <p><strong>Under Review</strong></p>
-          <p style={{ fontSize: 13, color: 'var(--tg-hint)', marginTop: 4 }}>
-            Your ad is being reviewed by the Fox Deal team. You'll be notified once it's approved.
-          </p>
-        </div>
-      )}
-
-      {deal.status === 'cancelled' && (
-        <div className="info-card" style={{ background: 'rgba(139,139,158,0.1)', border: '1px solid rgba(139,139,158,0.2)' }}>
-          <p><strong>Cancelled</strong></p>
-          <p style={{ fontSize: 13, color: 'var(--tg-hint)', marginTop: 4 }}>This deal was cancelled by the advertiser.</p>
-        </div>
-      )}
-
-      {/* Cancel button for advertiser (before payment) */}
+      {/* Cancel button */}
       {!isOwner && ['created', 'pending_admin', 'pending_approval', 'approved'].includes(deal.status) && (
-        <button
-          className="btn btn-danger"
-          style={{ marginTop: 12 }}
-          onClick={async () => {
-            if (!confirm('Cancel this deal?')) return;
-            setActionLoading(true);
-            try {
-              const updated = await cancelDeal(dealId);
-              setDeal(updated);
-            } catch (e) {
-              setError((e as Error).message);
-            } finally {
-              setActionLoading(false);
-            }
-          }}
-          disabled={actionLoading}
-        >
-          {actionLoading ? 'Cancelling...' : 'Cancel Deal'}
-        </button>
+        <div style={{ marginTop: 10 }}>
+          <Button
+            text={actionLoading ? 'Cancelling...' : 'Cancel Deal'}
+            type="secondary"
+            className="btn-danger-override"
+            onClick={async () => {
+              if (!confirm('Cancel this deal?')) return;
+              setActionLoading(true);
+              try { const updated = await cancelDeal(dealId); setDeal(updated); }
+              catch (e) { setError((e as Error).message); }
+              finally { setActionLoading(false); }
+            }}
+            disabled={actionLoading}
+          />
+        </div>
       )}
     </div>
   );

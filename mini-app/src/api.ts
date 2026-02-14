@@ -94,8 +94,23 @@ export const approveDeal = (id: number) =>
   request<Deal>(`/deals/${id}/approve`, { method: 'POST' });
 export const rejectDeal = (id: number, reason?: string) =>
   request<Deal>(`/deals/${id}/reject`, { method: 'POST', body: JSON.stringify({ reason }) });
+export interface TonPaymentInfo {
+  walletAddress: string;
+  amount: number;
+  amountNano: string;
+  comment: string;
+  dealId: number;
+  network: 'testnet' | 'mainnet';
+}
+
 export const requestPayment = (id: number) =>
-  request<{ invoiceLink: string }>(`/deals/${id}/pay`, { method: 'POST' });
+  request<{ tonPayment: TonPaymentInfo }>(`/deals/${id}/pay`, { method: 'POST' });
+
+export const confirmPayment = (id: number, bocHash?: string) =>
+  request<{ success: boolean }>(`/deals/${id}/confirm-payment`, {
+    method: 'POST',
+    body: JSON.stringify({ bocHash }),
+  });
 export const cancelDeal = (id: number) =>
   request<Deal>(`/deals/${id}/cancel`, { method: 'POST' });
 

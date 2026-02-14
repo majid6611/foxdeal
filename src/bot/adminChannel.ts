@@ -31,8 +31,8 @@ export async function sendChannelForApproval(
     `<b>Channel:</b> @${displayName}\n` +
     `<b>Category:</b> ${channel.category}\n` +
     `<b>Subscribers:</b> ${memberCount.toLocaleString()}\n` +
-    `<b>Time Price:</b> ${channel.price} Stars / ${channel.duration_hours}h\n` +
-    (channel.cpc_price > 0 ? `<b>CPC Price:</b> ${channel.cpc_price} Stars/click\n` : '') +
+    `<b>Time Price:</b> ${channel.price} TON / ${channel.duration_hours}h\n` +
+    (channel.cpc_price > 0 ? `<b>CPC Price:</b> ${channel.cpc_price} TON/click\n` : '') +
     `\n<b>Channel ID:</b> <code>${channel.telegram_channel_id}</code>\n` +
     `<b>DB ID:</b> #${channel.id}`;
 
@@ -61,8 +61,8 @@ export async function sendDealForAdminReview(deal: Deal): Promise<void> {
   const channelName = channel ? `@${channel.username}` : `Channel #${deal.channel_id}`;
 
   const pricingInfo = deal.pricing_model === 'cpc'
-    ? `<b>Pricing:</b> CPC (${deal.budget} Stars budget)`
-    : `<b>Pricing:</b> Time-based (${deal.price} Stars / ${deal.duration_hours}h)`;
+    ? `<b>Pricing:</b> CPC (${deal.budget} TON budget)`
+    : `<b>Pricing:</b> Time-based (${deal.price} TON / ${deal.duration_hours}h)`;
 
   let text =
     `<b>📢 New Ad Submission</b>\n\n` +

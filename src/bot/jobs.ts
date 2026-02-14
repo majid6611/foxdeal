@@ -137,9 +137,9 @@ function startMonitoring(dealId: number, durationMinutes: number): void {
         console.log(`[jobs] Deal ${dealId} verified and completed after ${durationMinutes} min`);
 
         await notifyUser(deal.advertiser_id,
-          `Your ad in @${channel.username} stayed live for the full ${durationMinutes} min. Payment of ${deal.price} Stars released!`);
+          `Your ad in @${channel.username} stayed live for the full ${durationMinutes} min. Payment of ${deal.price} TON released!`);
         await notifyUser(channel.owner_id,
-          `Ad verified in @${channel.username} (deal #${dealId}). ${deal.price} Stars have been released to you!`);
+          `Ad verified in @${channel.username} (deal #${dealId}). ${deal.price} TON have been released to you!`);
       } else {
         const remaining = Math.round((totalMs - elapsed) / 1000);
         console.log(`[jobs] Deal ${dealId} check OK — ${remaining}s remaining`);
@@ -196,10 +196,10 @@ function startCpcMonitoring(dealId: number): void {
 
         if (remaining > 0) {
           await refundEscrow(dealId, 'disputed', remaining);
-          console.log(`[jobs] CPC deal ${dealId} disputed — post deleted. Refunded ${remaining} Stars (spent ${deal.budget_spent}/${deal.budget})`);
+          console.log(`[jobs] CPC deal ${dealId} disputed — post deleted. Refunded ${remaining} TON (spent ${deal.budget_spent}/${deal.budget})`);
 
           await notifyUser(deal.advertiser_id,
-            `Your CPC ad in @${channel.username} was deleted by the owner. ${remaining} Stars refunded (${deal.click_count} clicks used).`);
+            `Your CPC ad in @${channel.username} was deleted by the owner. ${remaining} TON refunded (${deal.click_count} clicks used).`);
         } else {
           // Budget was fully spent, just dispute
           console.log(`[jobs] CPC deal ${dealId} disputed — post deleted. Budget fully spent.`);
@@ -249,7 +249,7 @@ export async function completeCpcDeal(dealId: number): Promise<void> {
       verified_at: new Date(),
     });
 
-    // Floor spent amount (Stars are integers); remainder goes back to advertiser
+    // Floor spent amount; remainder goes back to advertiser
     const spentAmount = Math.floor(Number(deal.budget_spent));
     const remainingBudget = deal.budget - spentAmount;
 
@@ -257,22 +257,22 @@ export async function completeCpcDeal(dealId: number): Promise<void> {
     const { releaseEscrow } = await import('../escrow/transitions.js');
     await releaseEscrow(dealId, spentAmount);
 
-    // If there's unspent budget, refund it (integer Stars)
+    // If there's unspent budget, refund it
     if (remainingBudget > 0) {
       const { createTransaction } = await import('../db/queries.js');
       await createTransaction(dealId, 'refund', remainingBudget);
-      console.log(`[jobs] CPC deal ${dealId}: refunded ${remainingBudget} Stars unspent budget`);
+      console.log(`[jobs] CPC deal ${dealId}: refunded ${remainingBudget} TON unspent budget`);
     }
 
-    console.log(`[jobs] CPC deal ${dealId} completed: ${deal.click_count + 1} clicks, ${spentAmount} Stars spent, ${remainingBudget} Stars refunded`);
+    console.log(`[jobs] CPC deal ${dealId} completed: ${deal.click_count + 1} clicks, ${spentAmount} TON spent, ${remainingBudget} TON refunded`);
 
     // Notify users
     const channelName = channel ? `@${channel.username}` : `channel #${deal.channel_id}`;
     await notifyUser(deal.advertiser_id,
-      `Your CPC ad in ${channelName} is complete! Budget used: ${spentAmount}/${deal.budget} Stars (${deal.click_count + 1} clicks).${remainingBudget > 0 ? ` ${remainingBudget} Stars refunded.` : ''}`);
+      `Your CPC ad in ${channelName} is complete! Budget used: ${spentAmount}/${deal.budget} TON (${deal.click_count + 1} clicks).${remainingBudget > 0 ? ` ${remainingBudget} TON refunded.` : ''}`);
     if (channel) {
       await notifyUser(channel.owner_id,
-        `CPC ad in ${channelName} (deal #${dealId}) completed. ${spentAmount} Stars earned from ${deal.click_count + 1} clicks!`);
+        `CPC ad in ${channelName} (deal #${dealId}) completed. ${spentAmount} TON earned from ${deal.click_count + 1} clicks!`);
     }
   } catch (err) {
     console.error(`[jobs] completeCpcDeal error for deal ${dealId}:`, (err as Error).message);

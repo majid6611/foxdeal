@@ -39,7 +39,7 @@ export async function notifyOwnerNewDeal(deal: Deal): Promise<void> {
     channel.owner_id,
     `<b>New ad request!</b>\n\n` +
     `Channel: @${channel.username}\n` +
-    `Price: ${deal.price} Stars\n\n` +
+    `Price: ${deal.price} TON\n\n` +
     `<i>Ad copy:</i>\n${escapeHtml(deal.ad_text)}\n\n` +
     `Open the Mini App to approve or reject.`,
   );
@@ -56,7 +56,7 @@ export async function notifyAdvertiserApproved(deal: Deal): Promise<void> {
     deal.advertiser_id,
     `<b>Deal approved!</b>\n\n` +
     `Your ad for @${channel.username} was approved.\n` +
-    `Pay ${deal.price} Stars in Fox Deal to proceed.`,
+    `Pay ${deal.price} TON in Fox Deal to proceed.`,
   );
 }
 
@@ -86,7 +86,7 @@ export async function notifyAdvertiserCompleted(deal: Deal): Promise<void> {
   await sendDM(
     deal.advertiser_id,
     `<b>Ad verified!</b>\n\n` +
-    `Your ad in @${channel.username} stayed live for the full duration. Payment of ${deal.price} Stars has been released to the channel owner.`,
+    `Your ad in @${channel.username} stayed live for the full duration. Payment of ${deal.price} TON has been released to the channel owner.`,
   );
 }
 
@@ -100,7 +100,7 @@ export async function notifyOwnerPaymentReleased(deal: Deal): Promise<void> {
   await sendDM(
     channel.owner_id,
     `<b>Payment received!</b>\n\n` +
-    `The ad in @${channel.username} has been verified. ${deal.price} Stars have been released to you.`,
+    `The ad in @${channel.username} has been verified. ${deal.price} TON have been released to you.`,
   );
 }
 
@@ -111,7 +111,7 @@ export async function notifyAdvertiserRefunded(deal: Deal, reason: string): Prom
   await sendDM(
     deal.advertiser_id,
     `<b>Refund issued</b>\n\n` +
-    `${deal.price} Stars have been refunded.\nReason: ${reason}`,
+    `${deal.price} TON have been refunded.\nReason: ${reason}`,
   );
 }
 

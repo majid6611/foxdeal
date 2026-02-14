@@ -83,7 +83,7 @@ dealsRouter.post('/', async (req, res) => {
         return;
       }
       if (!body.budget || body.budget < channel.cpc_price) {
-        res.status(400).json({ error: `Budget must be at least ${channel.cpc_price} Stars (1 click)` });
+        res.status(400).json({ error: `Budget must be at least ${channel.cpc_price} TON (1 click)` });
         return;
       }
       if (!body.adLink) {

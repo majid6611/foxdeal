@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getEarnings, type EarningsSummary, type EarningRecord } from '../api';
+import { Group, GroupItem, Text, Spinner } from '@telegram-tools/ui-kit';
 
 export function Earnings() {
   const [summary, setSummary] = useState<EarningsSummary | null>(null);
@@ -9,135 +10,104 @@ export function Earnings() {
 
   useEffect(() => {
     getEarnings()
-      .then((data) => {
-        setSummary(data.summary);
-        setHistory(data.history);
-      })
+      .then((data) => { setSummary(data.summary); setHistory(data.history); })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <div className="loading">Loading earnings...</div>;
-  if (error) return <div className="error">{error}</div>;
+  if (loading) return <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><Spinner size="32px" /></div>;
+  if (error) return <Text color="danger">{error}</Text>;
   if (!summary) return null;
 
-  const formatDate = (dateStr: string) => {
-    const d = new Date(dateStr);
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  };
-
-  const daysUntilPayout = (dateStr: string) => {
-    const diff = new Date(dateStr).getTime() - Date.now();
-    const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
-    return days > 0 ? days : 0;
-  };
+  const fmtDate = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const daysUntil = (d: string) => { const diff = new Date(d).getTime() - Date.now(); return Math.max(0, Math.ceil(diff / 86400000)); };
 
   return (
     <div>
-      <h2 className="section-title">Earnings</h2>
-      <p className="section-subtitle">Your ad revenue and payout schedule</p>
+      <div className="page-header">
+        <div className="page-title">Earnings</div>
+        <div className="page-subtitle">Revenue and payout schedule</div>
+      </div>
 
-      {/* Summary cards */}
+      {/* Summary Grid */}
       <div className="earnings-grid">
         <div className="earnings-card">
-          <div className="earnings-card-label">Total Earned</div>
-          <div className="earnings-card-value price-tag">{summary.total_earned} Stars</div>
+          <Text type="caption2" color="secondary">Total Earned</Text>
+          <div className="earnings-card-value price-tag">{summary.total_earned} TON</div>
         </div>
         <div className="earnings-card">
-          <div className="earnings-card-label">Pending Payout</div>
-          <div className="earnings-card-value" style={{ color: 'var(--fox-amber)' }}>
-            {summary.total_pending} Stars
-          </div>
+          <Text type="caption2" color="secondary">Pending</Text>
+          <div className="earnings-card-value" style={{ color: 'var(--fox-amber)' }}>{summary.total_pending} TON</div>
         </div>
         <div className="earnings-card">
-          <div className="earnings-card-label">Already Paid</div>
-          <div className="earnings-card-value" style={{ color: 'var(--fox-success)' }}>
-            {summary.total_paid} Stars
-          </div>
+          <Text type="caption2" color="secondary">Paid Out</Text>
+          <div className="earnings-card-value" style={{ color: 'var(--fox-success)' }}>{summary.total_paid} TON</div>
         </div>
         <div className="earnings-card">
-          <div className="earnings-card-label">Platform Fees (5%)</div>
-          <div className="earnings-card-value" style={{ color: 'var(--tg-hint)' }}>
-            {summary.platform_fees} Stars
-          </div>
+          <Text type="caption2" color="secondary">Fees (5%)</Text>
+          <div className="earnings-card-value" style={{ color: 'var(--tg-hint)' }}>{summary.platform_fees} TON</div>
         </div>
       </div>
 
-      {/* Next payout info */}
+      {/* Next payout */}
       {summary.next_payout_at && summary.next_payout_amount > 0 && (
-        <div className="info-card info" style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 13, marginBottom: 4 }}>Next Payout</div>
-          <div style={{ fontSize: 22, fontWeight: 800 }}>
-            <span className="price-tag">{summary.next_payout_amount} Stars</span>
-          </div>
-          <div style={{ fontSize: 13, color: 'var(--tg-hint)', marginTop: 6 }}>
-            in {daysUntilPayout(summary.next_payout_at)} days ({formatDate(summary.next_payout_at)})
+        <div className="deal-banner info" style={{ marginBottom: 18 }}>
+          <div className="deal-banner-icon">💰</div>
+          <div className="deal-banner-text">
+            <div className="deal-banner-title">{summary.next_payout_amount} TON coming</div>
+            <div className="deal-banner-desc">
+              in {daysUntil(summary.next_payout_at)} days · {fmtDate(summary.next_payout_at)}
+            </div>
           </div>
         </div>
       )}
 
       {/* How it works */}
-      <div className="card" style={{ cursor: 'default', marginBottom: 20 }}>
-        <div className="card-title" style={{ marginBottom: 8 }}>How Payouts Work</div>
-        <div style={{ fontSize: 13, color: 'var(--tg-hint)', lineHeight: 1.7 }}>
-          You receive <strong style={{ color: 'var(--fox-amber)' }}>95%</strong> of each ad payment.
-          Earnings are held for <strong style={{ color: 'var(--tg-text)' }}>30 days</strong> after
-          the deal completes, then transferred to your account.
-        </div>
-      </div>
+      <Group header="How Payouts Work">
+        <GroupItem text="Your share" after={<Text type="body" weight="bold" color="accent">95%</Text>} />
+        <GroupItem text="Hold period" after={<Text type="body" weight="bold">30 days</Text>} />
+        <GroupItem text="" description="You receive 95% of each ad payment. Earnings are held for 30 days after the deal completes, then transferred to your account." />
+      </Group>
 
       {/* History */}
-      <h3 className="detail-section" style={{ marginBottom: 12 }}>
-        <h3>Earnings History</h3>
-      </h3>
+      <div className="section-divider" style={{ marginTop: 24 }}>
+        <span className="section-divider-text">History</span>
+      </div>
 
       {history.length === 0 ? (
         <div className="empty">
           <div className="empty-icon">💰</div>
-          <p>No earnings yet.</p>
-          <p style={{ fontSize: 13, marginTop: 8 }}>
-            Complete your first ad deal to start earning.
-          </p>
+          <Text type="body" color="secondary">No earnings yet.</Text>
+          <Text type="caption1" color="tertiary">Complete your first deal to start earning.</Text>
         </div>
       ) : (
         history.map((e) => (
-          <div key={e.id} className="card" style={{ cursor: 'default' }}>
-            <div className="card-header">
-              <div>
-                <div className="card-title">@{e.channel_username}</div>
-                <div className="card-subtitle">Deal #{e.deal_id}</div>
+          <div key={e.id} style={{ marginBottom: 10 }}>
+            <Group header={
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                <span>@{e.channel_username} · #{e.deal_id}</span>
+                <span className="status-pill" style={{
+                  background: e.status === 'paid' ? 'rgba(52,199,89,0.12)' : 'rgba(0,122,255,0.12)',
+                  color: e.status === 'paid' ? '#34c759' : '#007aff',
+                }}>
+                  {e.status === 'paid' ? 'Paid' : 'Pending'}
+                </span>
               </div>
-              <span className={`card-badge ${e.status === 'paid' ? 'status-completed' : 'status-posted'}`}>
-                {e.status === 'paid' ? 'Paid' : 'Pending'}
-              </span>
-            </div>
-
-            <div className="detail-section" style={{ marginTop: 8 }}>
-              <div className="detail-row">
-                <span>Ad Payment</span>
-                <strong>{e.gross_amount} Stars</strong>
-              </div>
-              <div className="detail-row">
-                <span>Platform Fee (5%)</span>
-                <strong style={{ color: 'var(--tg-hint)' }}>-{e.platform_fee} Stars</strong>
-              </div>
-              <div className="detail-row">
-                <span>Your Earnings</span>
-                <strong className="price-tag">{e.net_amount} Stars</strong>
-              </div>
-              <div className="detail-row">
-                <span>Earned</span>
-                <strong>{formatDate(e.earned_at)}</strong>
-              </div>
-              <div className="detail-row">
-                <span>{e.status === 'paid' ? 'Paid On' : 'Payout Date'}</span>
-                <strong>
-                  {e.status === 'paid' && e.paid_at
-                    ? formatDate(e.paid_at)
-                    : `${formatDate(e.payout_at)} (${daysUntilPayout(e.payout_at)}d)`}
-                </strong>
-              </div>
-            </div>
+            }>
+              <GroupItem text="Payment" after={<Text type="body" weight="bold">{e.gross_amount} TON</Text>} />
+              <GroupItem text="Fee (5%)" after={<Text type="body" color="secondary">-{e.platform_fee} TON</Text>} />
+              <GroupItem text="You earned" after={<Text type="body" weight="bold" color="accent">{e.net_amount} TON</Text>} />
+              <GroupItem
+                text={e.status === 'paid' ? 'Paid on' : 'Payout in'}
+                after={
+                  <Text type="caption1" color="secondary">
+                    {e.status === 'paid' && e.paid_at
+                      ? fmtDate(e.paid_at)
+                      : `${fmtDate(e.payout_at)} (${daysUntil(e.payout_at)}d)`}
+                  </Text>
+                }
+              />
+            </Group>
           </div>
         ))
       )}

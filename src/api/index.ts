@@ -18,6 +18,12 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// Config endpoint (public — returns non-sensitive config for the frontend)
+app.get('/api/config', (_req, res) => {
+  const { env } = require('../config/env.js');
+  res.json({ tonNetwork: env.TON_NETWORK });
+});
+
 /**
  * Create a visitor fingerprint hash from IP + User-Agent.
  * Not perfect but good enough for basic click fraud prevention.

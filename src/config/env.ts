@@ -9,6 +9,9 @@ const envSchema = z.object({
   PAYMENT_TIMEOUT_HOURS: z.coerce.number().positive().default(2),
   APPROVAL_TIMEOUT_HOURS: z.coerce.number().positive().default(24),
   ADMIN_CHANNEL_ID: z.coerce.number().int(),
+  TON_API_KEY: z.string().min(1).default(''),
+  TON_NETWORK: z.enum(['mainnet', 'testnet']).default('testnet'),
+  TON_WALLET_ADDRESS: z.string().min(1).default(''),
 });
 
 export type Env = z.infer<typeof envSchema>;

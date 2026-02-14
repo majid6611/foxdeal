@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { getMyDeals, getIncomingDeals, type Deal } from '../api';
+import { Text, Spinner } from '@telegram-tools/ui-kit';
 
 const STATUS_LABELS: Record<string, string> = {
   created: 'Created',
-  pending_admin: 'Under Review',
+  pending_admin: 'Review',
   pending_approval: 'Pending',
   approved: 'Pay Now',
   rejected: 'Rejected',
@@ -16,6 +17,14 @@ const STATUS_LABELS: Record<string, string> = {
   expired: 'Expired',
   cancelled: 'Cancelled',
 };
+
+function statusColor(s: string): string {
+  if (['completed', 'verified'].includes(s)) return '#34c759';
+  if (['posted', 'escrow_held'].includes(s)) return '#007aff';
+  if (['rejected', 'refunded', 'cancelled', 'disputed'].includes(s)) return '#ff3b30';
+  if (['approved'].includes(s)) return '#ff9500';
+  return '#8e8e93';
+}
 
 export function MyDeals({
   isOwner,
@@ -36,70 +45,73 @@ export function MyDeals({
       .finally(() => setLoading(false));
   }, [isOwner]);
 
-  if (loading) return <div className="loading">Loading deals...</div>;
-  if (error) return <div className="error">{error}</div>;
+  if (loading) return <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><Spinner size="32px" /></div>;
+  if (error) return <Text color="danger">{error}</Text>;
 
   if (deals.length === 0) {
     return (
       <div className="empty">
         <div className="empty-icon">🦊</div>
-        <p>{isOwner ? 'No incoming deals yet.' : 'No deals yet.'}</p>
-        <p style={{ fontSize: 13, marginTop: 8 }}>
+        <Text type="body" color="secondary">{isOwner ? 'No incoming deals yet.' : 'No deals yet.'}</Text>
+        <Text type="caption1" color="tertiary">
           {isOwner
             ? 'Deals will appear here when advertisers submit ads for your channels.'
             : 'Browse the catalog to place your first ad.'}
-        </p>
+        </Text>
       </div>
     );
   }
 
   return (
     <div>
-      <h2 className="section-title" style={{ marginBottom: 14 }}>
-        {isOwner ? 'Incoming Deals' : 'My Deals'}
-      </h2>
+      <div className="page-header">
+        <div className="page-title">{isOwner ? 'Incoming Deals' : 'My Deals'}</div>
+        <div className="page-subtitle">{deals.length} deal{deals.length !== 1 ? 's' : ''}</div>
+      </div>
+
       {deals.map((deal) => (
-        <div key={deal.id} className="card" onClick={() => onSelectDeal(deal.id)}>
-          <div className="card-header">
-            <div>
-              <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div key={deal.id} className="ch-card" onClick={() => onSelectDeal(deal.id)}>
+          <div className="ch-avatar" style={{
+            background: `${statusColor(deal.status)}22`,
+            color: statusColor(deal.status),
+            fontSize: 14,
+            fontWeight: 800,
+          }}>
+            #{deal.id}
+          </div>
+          <div className="ch-card-body">
+            <div className="ch-card-top">
+              <span className="ch-card-name" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 Deal #{deal.id}
                 {deal.pricing_model === 'cpc' && (
-                  <span style={{
-                    fontSize: 10,
-                    padding: '2px 6px',
-                    borderRadius: 4,
-                    background: 'rgba(39, 188, 255, 0.12)',
-                    color: '#27bcff',
-                    fontWeight: 600,
-                  }}>
-                    CPC
-                  </span>
+                  <span className="badge badge-cpc">CPC</span>
                 )}
-              </div>
-              <div className="card-subtitle">
-                {deal.ad_text.length > 60
-                  ? deal.ad_text.slice(0, 60) + '...'
-                  : deal.ad_text}
-              </div>
+              </span>
+              <span className="status-pill" style={{
+                background: `${statusColor(deal.status)}18`,
+                color: statusColor(deal.status),
+              }}>
+                {STATUS_LABELS[deal.status] ?? deal.status}
+              </span>
             </div>
-            <span className={`card-badge status-${deal.status}`}>
-              {STATUS_LABELS[deal.status] ?? deal.status}
-            </span>
+            <div style={{ fontSize: 12, color: 'var(--tg-hint)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {deal.ad_text.length > 50 ? deal.ad_text.slice(0, 50) + '...' : deal.ad_text}
+            </div>
+            <div className="ch-card-meta" style={{ marginTop: 4 }}>
+              <span className="ch-card-price">
+                {deal.pricing_model === 'cpc'
+                  ? `${Number(deal.budget_spent) % 1 === 0 ? deal.budget_spent : Number(deal.budget_spent).toFixed(2)} / ${deal.budget} TON`
+                  : `${deal.price} TON`}
+              </span>
+              {deal.pricing_model === 'cpc' && deal.click_count > 0 && (
+                <span style={{ fontSize: 11, color: 'var(--tg-hint)' }}>{deal.click_count} clicks</span>
+              )}
+              <span style={{ fontSize: 11, color: 'var(--tg-hint)' }}>
+                {new Date(deal.created_at).toLocaleDateString()}
+              </span>
+            </div>
           </div>
-          <div className="card-row">
-            <span className="price-tag">
-              {deal.pricing_model === 'cpc'
-                ? `${Number(deal.budget_spent) % 1 === 0 ? deal.budget_spent : Number(deal.budget_spent).toFixed(2)}/${deal.budget} Stars`
-                : `${deal.price} Stars`}
-            </span>
-            <span style={{ fontSize: 13, color: 'var(--tg-hint)' }}>
-              {deal.pricing_model === 'cpc' && deal.click_count > 0
-                ? `${deal.click_count} clicks · `
-                : ''}
-              {new Date(deal.created_at).toLocaleDateString()}
-            </span>
-          </div>
+          <span className="ch-card-chevron">›</span>
         </div>
       ))}
     </div>

@@ -1,4 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { useTonConnectUI, useTonWallet } from '@tonconnect/ui-react';
+import { Address } from '@ton/core';
 import { Catalog } from './pages/Catalog';
 import { ChannelDetail } from './pages/ChannelDetail';
 import { DealDetail } from './pages/DealDetail';
@@ -7,7 +9,6 @@ import { ListChannel } from './pages/ListChannel';
 import { MyChannel } from './pages/MyChannel';
 import { Earnings } from './pages/Earnings';
 import type { Channel } from './api';
-import './styles.css';
 
 type Page =
   | { name: 'catalog' }
@@ -25,6 +26,22 @@ export function App() {
   const [splashVisible, setSplashVisible] = useState(true);
   const [splashFading, setSplashFading] = useState(false);
 
+  const [tonConnectUI] = useTonConnectUI();
+  const wallet = useTonWallet();
+  const [showWalletMenu, setShowWalletMenu] = useState(false);
+  const [tonNetwork, setTonNetwork] = useState<string>('');
+
+  // Convert raw wallet address to user-friendly format (e.g. UQ... or EQ...)
+  const friendlyAddress = useMemo(() => {
+    if (!wallet) return '';
+    try {
+      const addr = Address.parseRaw(wallet.account.address);
+      return addr.toString({ bounceable: false, testOnly: tonNetwork === 'testnet' });
+    } catch {
+      return wallet.account.address.slice(0, 6) + '...' + wallet.account.address.slice(-4);
+    }
+  }, [wallet, tonNetwork]);
+
   const tg = window.Telegram?.WebApp;
 
   useEffect(() => {
@@ -34,6 +51,9 @@ export function App() {
     // Detect light/dark theme and set a CSS class on <html>
     const colorScheme = tg?.colorScheme || 'dark';
     document.documentElement.setAttribute('data-theme', colorScheme);
+
+    // Fetch TON network config
+    fetch('/api/config').then(r => r.json()).then(d => setTonNetwork(d.tonNetwork ?? '')).catch(() => {});
 
     // Show splash for 2 seconds, then fade out over 0.5s
     const fadeTimer = setTimeout(() => setSplashFading(true), 2000);
@@ -132,10 +152,55 @@ export function App() {
 
       <div className="app">
         <div className="brand">
-          <img src="/logo.png" alt="Fox Deal" className="brand-logo-img" />
-          <div className="brand-text">
-            <div className="brand-name">Fox Deal</div>
-            {user && <div className="brand-greeting">Hi, {user.first_name}</div>}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <img src="/logo.png" alt="Fox Deal" className="brand-logo-img" />
+            <div className="brand-text">
+              <div className="brand-name">Fox Deal</div>
+              {user && <div className="brand-greeting">Hi, {user.first_name}</div>}
+            </div>
+          </div>
+
+          {/* Wallet button — top right */}
+          <div className="wallet-area">
+            {wallet ? (
+              <div style={{ position: 'relative' }}>
+                <button
+                  className="wallet-btn wallet-connected"
+                  onClick={() => setShowWalletMenu(!showWalletMenu)}
+                >
+                  <span className="wallet-dot" />
+                  {friendlyAddress.slice(0, 4)}...{friendlyAddress.slice(-4)}
+                  {tonNetwork === 'testnet' && <span className="wallet-testnet-badge">TEST</span>}
+                </button>
+                {showWalletMenu && (
+                  <>
+                    <div className="wallet-overlay" onClick={() => setShowWalletMenu(false)} />
+                    <div className="wallet-menu">
+                      <div className="wallet-menu-addr">
+                        {friendlyAddress}
+                      </div>
+                      <button
+                        className="wallet-menu-disconnect"
+                        onClick={() => {
+                          tonConnectUI.disconnect();
+                          setShowWalletMenu(false);
+                        }}
+                      >
+                        Disconnect Wallet
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : (
+              <button
+                className="wallet-btn"
+                onClick={() => tonConnectUI.openModal()}
+              >
+                Connect Wallet
+                {tonNetwork === 'testnet' && <span className="wallet-testnet-badge">TEST</span>}
+              </button>
+            )}
           </div>
         </div>
 

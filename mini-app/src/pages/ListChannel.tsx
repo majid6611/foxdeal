@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { createChannel } from '../api';
+import { Button, Input, Text } from '@telegram-tools/ui-kit';
 
 const CATEGORIES = ['news', 'tech', 'crypto', 'entertainment', 'education', 'lifestyle', 'business', 'general'];
 
@@ -12,14 +13,8 @@ export function ListChannel({ onBack, onCreated }: { onBack: () => void; onCreat
   const [error, setError] = useState('');
 
   const handleSubmit = async () => {
-    if (!channelId.trim() || !price) {
-      setError('Please fill in all fields');
-      return;
-    }
-
-    setSubmitting(true);
-    setError('');
-
+    if (!channelId.trim() || !price) { setError('Please fill in all fields'); return; }
+    setSubmitting(true); setError('');
     try {
       await createChannel({
         telegramChannelId: channelId.startsWith('@') ? channelId : `@${channelId}`,
@@ -28,77 +23,47 @@ export function ListChannel({ onBack, onCreated }: { onBack: () => void; onCreat
         durationHours: Number(durationHours),
       });
       onCreated();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setSubmitting(false);
-    }
+    } catch (e) { setError((e as Error).message); }
+    finally { setSubmitting(false); }
   };
 
   return (
     <div>
       <button className="back-btn" onClick={onBack}>← Back</button>
-      <h2 className="section-title" style={{ marginBottom: 16 }}>List Your Channel</h2>
+
+      <div className="page-header">
+        <div className="page-title">List Your Channel</div>
+        <div className="page-subtitle">Start earning from ad placements</div>
+      </div>
 
       {error && <div className="error">{error}</div>}
 
-      <div className="form-group">
-        <label className="form-label">Channel Username</label>
-        <input
-          className="form-input"
-          placeholder="@yourchannel"
-          value={channelId}
-          onChange={(e) => setChannelId(e.target.value)}
-        />
-        <div style={{ fontSize: 12, color: 'var(--tg-hint)', marginTop: 4 }}>
-          Bot must be added as admin to this channel first.
-        </div>
+      <div className="section-gap">
+        <Text type="caption1" color="secondary" className="form-label-tg">Channel Username</Text>
+        <Input value={channelId} placeholder="@yourchannel" onChange={(v) => setChannelId(v)} />
+        <Text type="caption2" color="tertiary" className="form-hint">Bot must be admin in this channel.</Text>
       </div>
 
-      <div className="form-group">
-        <label className="form-label">Category</label>
-        <select
-          className="form-select"
-          value={category}
-          onChange={(e) => setCategory(e.target.value)}
-        >
-          {CATEGORIES.map((c) => (
-            <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>
-          ))}
+      <div className="section-gap">
+        <Text type="caption1" color="secondary" className="form-label-tg">Category</Text>
+        <select className="form-select" value={category} onChange={(e) => setCategory(e.target.value)}>
+          {CATEGORIES.map((c) => <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>)}
         </select>
       </div>
 
-      <div className="form-group">
-        <label className="form-label">Price (Telegram Stars)</label>
-        <input
-          className="form-input"
-          type="number"
-          min="1"
-          placeholder="100"
-          value={price}
-          onChange={(e) => setPrice(e.target.value)}
-        />
+      <div className="section-gap">
+        <Text type="caption1" color="secondary" className="form-label-tg">Price (TON)</Text>
+        <Input value={price} type="number" placeholder="100" onChange={(v) => setPrice(v)} />
       </div>
 
-      <div className="form-group">
-        <label className="form-label">Ad Duration (hours)</label>
-        <input
-          className="form-input"
-          type="number"
-          min="1"
-          placeholder="24"
-          value={durationHours}
-          onChange={(e) => setDurationHours(e.target.value)}
-        />
+      <div className="section-gap">
+        <Text type="caption1" color="secondary" className="form-label-tg">Duration (hours)</Text>
+        <Input value={durationHours} type="number" placeholder="24" onChange={(v) => setDurationHours(v)} />
       </div>
 
-      <button
-        className="btn btn-primary"
-        onClick={handleSubmit}
-        disabled={submitting}
-      >
-        {submitting ? 'Listing...' : 'List Channel'}
-      </button>
+      <div style={{ marginTop: 20 }}>
+        <Button text={submitting ? 'Listing...' : 'List Channel'} type="primary" onClick={handleSubmit} disabled={submitting} loading={submitting} />
+      </div>
     </div>
   );
 }
