@@ -329,7 +329,7 @@ docker ps --filter "name=market"
 - **Backend:** Node.js, Express, TypeScript, grammY (Telegram bot)
 - **Frontend:** React, Vite, TypeScript
 - **Database:** PostgreSQL
-- **Payments:** Telegram Stars (native bot payments)
+- **Payments:** TON
 - **Deployment:** Docker Compose
 - **Validation:** Zod (env vars + API schemas)
 

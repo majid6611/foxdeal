@@ -3,6 +3,8 @@ import { createChannel } from '../api';
 import { Button, Text } from '@telegram-tools/ui-kit';
 
 const CATEGORIES = ['news', 'tech', 'crypto', 'entertainment', 'education', 'lifestyle', 'business', 'general'];
+const DEMO_APPROVAL_LINK = 'https://t.me/foxdealadmin';
+const DEMO_APPROVAL_HANDLE = '@foxdealadmin';
 
 export function ListChannel({ onBack, onCreated }: { onBack: () => void; onCreated: () => void }) {
   const [channelId, setChannelId] = useState('');
@@ -11,6 +13,7 @@ export function ListChannel({ onBack, onCreated }: { onBack: () => void; onCreat
   const [durationHours, setDurationHours] = useState('24');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [demoNotice, setDemoNotice] = useState('');
 
   const handleSubmit = async () => {
     if (!channelId.trim() || !price) { setError('Please fill in all fields'); return; }
@@ -22,6 +25,7 @@ export function ListChannel({ onBack, onCreated }: { onBack: () => void; onCreat
         price: Number(price),
         durationHours: Number(durationHours),
       });
+      setDemoNotice('show');
       onCreated();
     } catch (e) { setError((e as Error).message); }
     finally { setSubmitting(false); }
@@ -37,6 +41,25 @@ export function ListChannel({ onBack, onCreated }: { onBack: () => void; onCreat
       </div>
 
       {error && <div className="error">{error}</div>}
+      {demoNotice && (
+        <div
+          style={{
+            marginBottom: 12,
+            padding: '12px 14px',
+            borderRadius: 12,
+            border: '1px solid #ff9500',
+            background: 'rgba(255,149,0,0.14)',
+            color: '#ffb340',
+            fontWeight: 700,
+            fontSize: 13,
+          }}
+        >
+          Important Notice (Demo Day): Please join here to approval{' '}
+          <a href={DEMO_APPROVAL_LINK} target="_blank" rel="noopener noreferrer" style={{ color: '#ffd27f', textDecoration: 'underline' }}>
+            {DEMO_APPROVAL_HANDLE}
+          </a>
+        </div>
+      )}
 
       <div className="section-gap">
         <Text type="caption1" color="secondary" className="form-label-tg">Channel Username</Text>

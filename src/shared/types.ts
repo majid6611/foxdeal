@@ -34,6 +34,7 @@ export interface Channel {
   telegram_channel_id: string;
   username: string;
   subscribers: number;
+  avg_post_views: number | null;
   category: string;
   price: number;
   duration_hours: number;

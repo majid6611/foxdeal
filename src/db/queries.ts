@@ -37,6 +37,7 @@ export async function createChannel(
   telegramChannelId: string,
   username: string,
   subscribers: number,
+  avgPostViews: number | null,
   category: string,
   price: number,
   durationHours: number,
@@ -44,10 +45,10 @@ export async function createChannel(
   photoUrl: string | null = null,
 ): Promise<Channel> {
   const { rows } = await pool.query<Channel>(
-    `INSERT INTO channels (owner_id, telegram_channel_id, username, subscribers, category, price, duration_hours, cpc_price, approval_status, photo_url)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $9)
+    `INSERT INTO channels (owner_id, telegram_channel_id, username, subscribers, avg_post_views, category, price, duration_hours, cpc_price, is_active, approval_status, photo_url)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, FALSE, 'pending', $10)
      RETURNING *`,
-    [ownerId, telegramChannelId, username, subscribers, category, price, durationHours, cpcPrice, photoUrl],
+    [ownerId, telegramChannelId, username, subscribers, avgPostViews, category, price, durationHours, cpcPrice, photoUrl],
   );
   return rows[0];
 }
@@ -105,7 +106,7 @@ export async function activateChannel(channelId: number): Promise<void> {
 
 export async function approveChannel(channelId: number): Promise<Channel | null> {
   const { rows } = await pool.query<Channel>(
-    "UPDATE channels SET approval_status = 'approved' WHERE id = $1 RETURNING *",
+    "UPDATE channels SET approval_status = 'approved', is_active = TRUE WHERE id = $1 RETURNING *",
     [channelId],
   );
   return rows[0] ?? null;

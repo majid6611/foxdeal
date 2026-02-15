@@ -85,6 +85,9 @@ export function Catalog({ onSelect }: { onSelect: (ch: Channel) => void }) {
               {/* Channel name */}
               <div className="catalog-card-name">@{ch.username}</div>
               <div className="catalog-card-cat">{ch.category}</div>
+              {typeof ch.avg_post_views === 'number' && ch.avg_post_views > 0 && (
+                <div className="catalog-card-cat">Avg views: {ch.avg_post_views.toLocaleString()}</div>
+              )}
 
               {/* Pricing */}
               <div className="catalog-card-pricing">

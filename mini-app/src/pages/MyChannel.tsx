@@ -3,6 +3,8 @@ import { getMyChannels, deleteChannel, activateChannel, createChannel, type Chan
 import { Button, Group, GroupItem, Text, Spinner } from '@telegram-tools/ui-kit';
 
 const CATEGORIES = ['news', 'tech', 'crypto', 'entertainment', 'education', 'lifestyle', 'business', 'general'];
+const DEMO_APPROVAL_LINK = 'https://t.me/foxdealadmin';
+const DEMO_APPROVAL_HANDLE = '@foxdealadmin';
 
 function approvalColor(ch: Channel) {
   if (ch.approval_status === 'pending') return { bg: 'rgba(255,149,0,0.12)', color: '#ff9500', label: '⏳ Pending' };
@@ -24,6 +26,7 @@ export function MyChannel({ onBack }: { onBack: () => void }) {
   const [durationHours, setDurationHours] = useState('24');
   const [cpcPrice, setCpcPrice] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [demoNotice, setDemoNotice] = useState('');
 
   const loadChannels = () => {
     setLoading(true);
@@ -33,7 +36,9 @@ export function MyChannel({ onBack }: { onBack: () => void }) {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { loadChannels(); }, []);
+  useEffect(() => {
+    loadChannels();
+  }, []);
 
   const handleDeactivate = async (id: number) => {
     if (!confirm('Deactivate this channel? It will be hidden from the catalog.')) return;
@@ -61,6 +66,7 @@ export function MyChannel({ onBack }: { onBack: () => void }) {
         durationHours: Number(durationHours),
         cpcPrice: cpcPrice ? Number(cpcPrice) : 0,
       });
+      setDemoNotice('show');
       setChannelId(''); setCategory('general'); setPrice(''); setDurationHours('24'); setCpcPrice('');
       setShowForm(false); loadChannels();
     } catch (e) { setError((e as Error).message); }
@@ -82,6 +88,25 @@ export function MyChannel({ onBack }: { onBack: () => void }) {
       </div>
 
       {error && <div className="error">{error}</div>}
+      {demoNotice && (
+        <div
+          style={{
+            marginBottom: 12,
+            padding: '12px 14px',
+            borderRadius: 12,
+            border: '1px solid #ff9500',
+            background: 'rgba(255,149,0,0.14)',
+            color: '#ffb340',
+            fontWeight: 700,
+            fontSize: 13,
+          }}
+        >
+          Important Notice (Demo Day): Please join here to approval{' '}
+          <a href={DEMO_APPROVAL_LINK} target="_blank" rel="noopener noreferrer" style={{ color: '#ffd27f', textDecoration: 'underline' }}>
+            {DEMO_APPROVAL_HANDLE}
+          </a>
+        </div>
+      )}
 
       {showForm && (
         <div className="form-card">

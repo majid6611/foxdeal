@@ -12,7 +12,7 @@ import {
   activateChannel,
 } from '../../db/queries.js';
 import { upsertUser, getUserByTelegramId } from '../../db/queries.js';
-import { isBotAdminOfChannel, getChannelInfo } from '../../bot/admin.js';
+import { isBotAdminOfChannel, getChannelInfo, getChannelAverageViews } from '../../bot/admin.js';
 import { sendChannelForApproval } from '../../bot/adminChannel.js';
 
 export const channelsRouter = Router();
@@ -110,12 +110,18 @@ channelsRouter.post('/', async (req, res) => {
     // Upsert user as owner
     const user = await upsertUser(req.telegramUser!.id, 'owner');
 
+    // Compute average post views for public channels (best-effort, non-blocking)
+    const avgPostViews = info.username
+      ? await getChannelAverageViews(info.username)
+      : null;
+
     // Create channel
     const channel = await createChannel(
       user.id,
       body.telegramChannelId,
       info.username ?? info.title,
       info.memberCount,
+      avgPostViews,
       body.category,
       body.price,
       body.durationHours,
@@ -125,12 +131,10 @@ channelsRouter.post('/', async (req, res) => {
 
     await updateChannelBotAdmin(channel.id, true);
 
-    // Demo mode: auto-approve channel immediately
-    // TODO: restore admin approval after demo — use sendChannelForApproval instead
-    const { approveChannel } = await import('../../db/queries.js');
-    await approveChannel(channel.id);
+    // Send to admin moderation channel. Channel stays pending/inactive until approved.
+    await sendChannelForApproval(channel, info.username ?? info.title, info.memberCount);
 
-    res.status(201).json({ ...channel, approval_status: 'approved' as const });
+    res.status(201).json(channel);
   } catch (err) {
     if (err instanceof z.ZodError) {
       res.status(400).json({ error: 'Invalid input', details: err.errors });
@@ -153,6 +157,11 @@ channelsRouter.post('/:id/activate', async (req, res) => {
     const user = await getUserByTelegramId(req.telegramUser!.id);
     if (!user || user.id !== channel.owner_id) {
       res.status(403).json({ error: 'Not the owner of this channel' });
+      return;
+    }
+
+    if (channel.approval_status !== 'approved') {
+      res.status(400).json({ error: 'Channel must be approved by admin before activation' });
       return;
     }
 

@@ -22,6 +22,11 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
+export interface PublicConfig {
+  tonNetwork: 'testnet' | 'mainnet';
+  adminChannelId: number;
+}
+
 // Types matching backend
 export interface Channel {
   id: number;
@@ -29,6 +34,7 @@ export interface Channel {
   telegram_channel_id: string;
   username: string;
   subscribers: number;
+  avg_post_views: number | null;
   category: string;
   price: number;
   duration_hours: number;
@@ -79,6 +85,7 @@ export const deleteChannel = (id: number) =>
   request<{ success: boolean }>(`/channels/${id}`, { method: 'DELETE' });
 export const activateChannel = (id: number) =>
   request<{ success: boolean }>(`/channels/${id}/activate`, { method: 'POST' });
+export const getConfig = () => request<PublicConfig>('/config');
 
 // Deals
 export const getMyDeals = () => request<Deal[]>('/deals');

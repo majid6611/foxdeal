@@ -52,6 +52,63 @@ export async function getChannelInfo(channelId: string | number) {
 }
 
 /**
+ * Fetch average post views for a public channel by scraping t.me/s/<username>.
+ * Returns null when unavailable (private channel, no recent posts, or parse failure).
+ */
+export async function getChannelAverageViews(username: string, sampleSize = 10): Promise<number | null> {
+  const clean = username.replace(/^@/, '').trim();
+  if (!clean) return null;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  try {
+
+    const resp = await fetch(`https://t.me/s/${clean}`, {
+      signal: controller.signal,
+      headers: {
+        // Keep a real UA to reduce 403/anti-bot false positives.
+        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      },
+    });
+    if (!resp.ok) return null;
+    const html = await resp.text();
+
+    // t.me/s markup exposes post views in spans like:
+    // <span class="tgme_widget_message_views">1.2K</span>
+    const matches = [...html.matchAll(/tgme_widget_message_views[^>]*>([^<]+)</g)]
+      .map((m) => m[1]?.trim() ?? '')
+      .map(parseViewsText)
+      .filter((v): v is number => v !== null);
+
+    if (matches.length === 0) return null;
+
+    const slice = matches.slice(0, sampleSize);
+    const avg = slice.reduce((sum, v) => sum + v, 0) / slice.length;
+    return Math.round(avg);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function parseViewsText(raw: string): number | null {
+  const text = raw.replace(/[,\s]/g, '').toUpperCase();
+  if (!text) return null;
+
+  const match = text.match(/^(\d+(?:\.\d+)?)([KM]?)$/);
+  if (!match) return null;
+
+  const value = Number(match[1]);
+  const suffix = match[2];
+
+  if (!Number.isFinite(value)) return null;
+  if (suffix === 'K') return Math.round(value * 1_000);
+  if (suffix === 'M') return Math.round(value * 1_000_000);
+  return Math.round(value);
+}
+
+/**
  * Post a message to a channel. Returns the message ID or null on failure.
  *
  * For CPC ads: uses a t.me deep link (startapp=click_{dealId}) for click tracking + billing.

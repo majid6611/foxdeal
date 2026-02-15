@@ -21,7 +21,10 @@ app.get('/api/health', (_req, res) => {
 
 // Config endpoint (public — returns non-sensitive config for the frontend)
 app.get('/api/config', (_req, res) => {
-  res.json({ tonNetwork: env.TON_NETWORK });
+  res.json({
+    tonNetwork: env.TON_NETWORK,
+    adminChannelId: env.ADMIN_CHANNEL_ID,
+  });
 });
 
 /**

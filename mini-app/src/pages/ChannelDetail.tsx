@@ -153,6 +153,12 @@ export function ChannelDetail({
             <div className="hero-stat-value">{channel.subscribers.toLocaleString()}</div>
             <div className="hero-stat-label">Subscribers</div>
           </div>
+          {typeof channel.avg_post_views === 'number' && channel.avg_post_views > 0 && (
+            <div className="hero-stat">
+              <div className="hero-stat-value">{channel.avg_post_views.toLocaleString()}</div>
+              <div className="hero-stat-label">Avg Views</div>
+            </div>
+          )}
           <div className="hero-stat">
             <div className="hero-stat-value">{channel.price}</div>
             <div className="hero-stat-label">TON / {channel.duration_hours}h</div>
