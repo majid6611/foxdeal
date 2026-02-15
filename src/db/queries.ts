@@ -33,12 +33,13 @@ export async function createChannel(
   price: number,
   durationHours: number,
   cpcPrice: number = 0,
+  photoUrl: string | null = null,
 ): Promise<Channel> {
   const { rows } = await pool.query<Channel>(
-    `INSERT INTO channels (owner_id, telegram_channel_id, username, subscribers, category, price, duration_hours, cpc_price, approval_status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending')
+    `INSERT INTO channels (owner_id, telegram_channel_id, username, subscribers, category, price, duration_hours, cpc_price, approval_status, photo_url)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $9)
      RETURNING *`,
-    [ownerId, telegramChannelId, username, subscribers, category, price, durationHours, cpcPrice],
+    [ownerId, telegramChannelId, username, subscribers, category, price, durationHours, cpcPrice, photoUrl],
   );
   return rows[0];
 }
@@ -70,6 +71,13 @@ export async function updateChannelBotAdmin(channelId: number, botIsAdmin: boole
   await pool.query(
     'UPDATE channels SET bot_is_admin = $2 WHERE id = $1',
     [channelId, botIsAdmin],
+  );
+}
+
+export async function updateChannelPhoto(channelId: number, photoUrl: string | null): Promise<void> {
+  await pool.query(
+    'UPDATE channels SET photo_url = $2 WHERE id = $1',
+    [channelId, photoUrl],
   );
 }
 

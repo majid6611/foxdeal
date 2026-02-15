@@ -3,6 +3,9 @@ import { env } from '../config/env.js';
 
 export const bot = new Bot(env.BOT_TOKEN);
 
+/** Bot username, resolved at startup via getMe(). Used for deep links. */
+export let botUsername = '';
+
 // /start command
 bot.command('start', async (ctx) => {
   await ctx.reply(
@@ -25,6 +28,11 @@ bot.catch((err) => {
 });
 
 export async function startBot(): Promise<void> {
+  // Resolve bot username for deep links
+  const me = await bot.api.getMe();
+  botUsername = me.username;
+  console.log(`[bot] Bot username: @${botUsername}`);
+
   // Register payment handlers (must be done before bot.start)
   const { registerPaymentHandlers } = await import('./payments.js');
   registerPaymentHandlers();

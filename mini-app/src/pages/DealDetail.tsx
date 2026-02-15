@@ -204,7 +204,7 @@ export function DealDetail({
 
       {/* Owner actions */}
       {isOwner && deal.status === 'pending_approval' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 16 }}>
+        <div className="deal-actions">
           {showRejectForm ? (
             <>
               <textarea
@@ -214,14 +214,22 @@ export function DealDetail({
                 onChange={(e) => setRejectReason(e.target.value)}
                 style={{ minHeight: 80 }}
               />
-              <Button text={actionLoading ? 'Rejecting...' : 'Confirm Reject'} type="primary" onClick={handleReject} disabled={actionLoading} loading={actionLoading} className="btn-danger-override" />
-              <Button text="Cancel" type="secondary" onClick={() => setShowRejectForm(false)} />
+              <button className="action-btn action-btn-danger" onClick={handleReject} disabled={actionLoading}>
+                {actionLoading ? 'Rejecting...' : '❌ Confirm Reject'}
+              </button>
+              <button className="action-btn action-btn-ghost" onClick={() => setShowRejectForm(false)}>
+                Cancel
+              </button>
             </>
           ) : (
-            <>
-              <Button text={actionLoading ? 'Approving...' : 'Approve Deal'} type="primary" onClick={handleApprove} disabled={actionLoading} loading={actionLoading} />
-              <Button text="Reject Deal" type="secondary" onClick={() => setShowRejectForm(true)} disabled={actionLoading} className="btn-danger-override" />
-            </>
+            <div className="deal-actions-row">
+              <button className="action-btn action-btn-approve" onClick={handleApprove} disabled={actionLoading}>
+                {actionLoading ? 'Approving...' : '✅ Approve'}
+              </button>
+              <button className="action-btn action-btn-reject" onClick={() => setShowRejectForm(true)} disabled={actionLoading}>
+                ❌ Reject
+              </button>
+            </div>
           )}
         </div>
       )}

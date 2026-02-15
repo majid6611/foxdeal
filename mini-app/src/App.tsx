@@ -44,9 +44,41 @@ export function App() {
 
   const tg = window.Telegram?.WebApp;
 
+  // Handle startapp deep link for click tracking (e.g. startapp=click_33)
+  const [isClickRedirect, setIsClickRedirect] = useState(false);
+
   useEffect(() => {
     tg?.ready();
     tg?.expand();
+
+    // Check if this is a click redirect deep link
+    const startParam = tg?.initDataUnsafe?.start_param;
+    if (startParam && startParam.startsWith('click_')) {
+      setIsClickRedirect(true);
+      const dealId = startParam.replace('click_', '');
+      const userId = tg?.initDataUnsafe?.user?.id;
+
+      // Track the click, then open the destination URL
+      fetch(`/api/track-click/${dealId}${userId ? `?uid=${userId}` : ''}`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.url) {
+            // Open the destination — use openTelegramLink for t.me links, openLink for others
+            if (data.url.includes('t.me/') || data.url.includes('telegram.me/')) {
+              tg?.openTelegramLink(data.url);
+            } else {
+              tg?.openLink(data.url);
+            }
+          }
+          // Close the mini app after a short delay
+          setTimeout(() => tg?.close(), 300);
+        })
+        .catch(() => {
+          // If tracking fails, still try to close
+          setTimeout(() => tg?.close(), 500);
+        });
+      return; // Skip normal initialization
+    }
 
     // Detect light/dark theme and set a CSS class on <html>
     const colorScheme = tg?.colorScheme || 'dark';
@@ -129,6 +161,16 @@ export function App() {
         return <Earnings />;
     }
   };
+
+  // If this is a click redirect, show a minimal loading state while tracking + opening
+  if (isClickRedirect) {
+    return (
+      <div className="click-redirect">
+        <div className="click-redirect-spinner" />
+        <div className="click-redirect-text">Opening link...</div>
+      </div>
+    );
+  }
 
   return (
     <>

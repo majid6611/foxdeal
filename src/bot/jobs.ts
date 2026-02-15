@@ -27,19 +27,15 @@ export async function autoPostDeal(dealId: number): Promise<void> {
     return;
   }
 
-  // Build tracking URL if ad has a link (goes through our click dedup endpoint)
-  const trackingUrl = deal.ad_link
-    ? `${env.MINI_APP_URL.replace(/\/$/, '')}/api/click/${dealId}`
-    : null;
-
   // Attempt to post (retry up to 3 times with backoff)
+  // Pass dealId so the inline button uses a t.me deep link for click tracking + redirect
   let messageId: number | null = null;
   for (let attempt = 1; attempt <= 3; attempt++) {
     messageId = await postToChannel(
       channel.telegram_channel_id,
       deal.ad_text,
       deal.ad_image_url,
-      trackingUrl,
+      deal.ad_link ? dealId : null,
     );
     if (messageId) break;
     if (attempt < 3) {

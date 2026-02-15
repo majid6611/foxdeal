@@ -5,6 +5,7 @@ import { dealsRouter } from './routes/deals.js';
 import { paymentsRouter } from './routes/payments.js';
 import { uploadRouter } from './routes/upload.js';
 import { earningsRouter } from './routes/earnings.js';
+import { env } from '../config/env.js';
 
 export const app = express();
 
@@ -20,7 +21,6 @@ app.get('/api/health', (_req, res) => {
 
 // Config endpoint (public — returns non-sensitive config for the frontend)
 app.get('/api/config', (_req, res) => {
-  const { env } = require('../config/env.js');
   res.json({ tonNetwork: env.TON_NETWORK });
 });
 
@@ -85,6 +85,61 @@ app.get('/api/click/:dealId', async (req, res) => {
   } catch (err) {
     console.error('[click] Error:', err);
     res.status(500).send('Server error');
+  }
+});
+
+/**
+ * Track a click from the Mini App (called via startapp deep link flow).
+ * Uses Telegram user ID from query param for deduplication (much better than IP+UA).
+ * Returns the destination URL as JSON so the Mini App can open it.
+ */
+app.get('/api/track-click/:dealId', async (req, res) => {
+  try {
+    const { getDealById, getChannelById, recordVisitorClick, spendClick, incrementClickCount } = await import('../db/queries.js');
+    const dealId = Number(req.params.dealId);
+    const tgUserId = req.query.uid as string | undefined;
+    const deal = await getDealById(dealId);
+
+    if (!deal || !deal.ad_link) {
+      res.status(404).json({ error: 'Deal not found' });
+      return;
+    }
+
+    // Use Telegram user ID for dedup if available, fallback to IP+UA
+    const hash = tgUserId
+      ? `tg_${tgUserId}`
+      : visitorHash(req.ip ?? 'unknown', req.headers['user-agent'] ?? 'unknown');
+
+    const isNewClick = await recordVisitorClick(dealId, hash);
+
+    if (isNewClick) {
+      if (deal.pricing_model === 'cpc' && deal.status === 'posted') {
+        const channel = await getChannelById(deal.channel_id);
+        const cpcPrice = channel ? Number(channel.cpc_price) : 0;
+
+        if (cpcPrice > 0) {
+          const updated = await spendClick(dealId, cpcPrice);
+          if (updated && Number(updated.budget_spent) >= updated.budget) {
+            const { completeCpcDeal } = await import('../bot/jobs.js');
+            completeCpcDeal(dealId).catch((err: unknown) =>
+              console.error(`[click] Failed to complete CPC deal ${dealId}:`, err),
+            );
+          }
+        }
+        console.log(`[click] New unique CPC click: deal ${dealId}, hash ${hash.slice(0, 8)}...`);
+      } else {
+        incrementClickCount(dealId).catch(() => {});
+        console.log(`[click] New unique click: deal ${dealId}, hash ${hash.slice(0, 8)}...`);
+      }
+    } else {
+      console.log(`[click] Duplicate click ignored: deal ${dealId}, hash ${hash.slice(0, 8)}...`);
+    }
+
+    // Return the destination URL (Mini App will open it)
+    res.json({ url: deal.ad_link, tracked: isNewClick });
+  } catch (err) {
+    console.error('[track-click] Error:', err);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 

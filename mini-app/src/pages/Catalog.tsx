@@ -69,9 +69,13 @@ export function Catalog({ onSelect }: { onSelect: (ch: Channel) => void }) {
             <div key={ch.id} className="catalog-card" onClick={() => onSelect(ch)}>
               {/* Top section */}
               <div className="catalog-card-top">
-                <div className="catalog-card-icon">
-                  {CAT_ICONS[ch.category] || '📢'}
-                </div>
+                {ch.photo_url ? (
+                  <img src={ch.photo_url} alt="" className="catalog-card-photo" />
+                ) : (
+                  <div className="catalog-card-icon">
+                    {CAT_ICONS[ch.category] || '📢'}
+                  </div>
+                )}
                 <div className="catalog-card-subs">
                   <span className="catalog-card-subs-num">{ch.subscribers >= 1000 ? `${(ch.subscribers / 1000).toFixed(ch.subscribers >= 10000 ? 0 : 1)}K` : ch.subscribers}</span>
                   <span className="catalog-card-subs-label">subs</span>

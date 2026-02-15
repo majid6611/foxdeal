@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { createChannel } from '../api';
-import { Button, Input, Text } from '@telegram-tools/ui-kit';
+import { Button, Text } from '@telegram-tools/ui-kit';
 
 const CATEGORIES = ['news', 'tech', 'crypto', 'entertainment', 'education', 'lifestyle', 'business', 'general'];
 
@@ -40,7 +40,7 @@ export function ListChannel({ onBack, onCreated }: { onBack: () => void; onCreat
 
       <div className="section-gap">
         <Text type="caption1" color="secondary" className="form-label-tg">Channel Username</Text>
-        <Input value={channelId} placeholder="@yourchannel" onChange={(v) => setChannelId(v)} />
+        <input className="form-input" value={channelId} placeholder="@yourchannel" onChange={(e) => setChannelId(e.target.value)} />
         <Text type="caption2" color="tertiary" className="form-hint">Bot must be admin in this channel.</Text>
       </div>
 
@@ -53,12 +53,12 @@ export function ListChannel({ onBack, onCreated }: { onBack: () => void; onCreat
 
       <div className="section-gap">
         <Text type="caption1" color="secondary" className="form-label-tg">Price (TON)</Text>
-        <Input value={price} type="number" placeholder="100" onChange={(v) => setPrice(v)} />
+        <input className="form-input" type="number" min="1" value={price} placeholder="100" onChange={(e) => setPrice(e.target.value)} />
       </div>
 
       <div className="section-gap">
         <Text type="caption1" color="secondary" className="form-label-tg">Duration (hours)</Text>
-        <Input value={durationHours} type="number" placeholder="24" onChange={(v) => setDurationHours(v)} />
+        <input className="form-input" type="number" min="1" value={durationHours} placeholder="24" onChange={(e) => setDurationHours(e.target.value)} />
       </div>
 
       <div style={{ marginTop: 20 }}>

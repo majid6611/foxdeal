@@ -7,6 +7,7 @@ import {
   getChannelById,
   getChannelsByOwner,
   updateChannelBotAdmin,
+  updateChannelPhoto,
   deactivateChannel,
   activateChannel,
 } from '../../db/queries.js';
@@ -31,6 +32,22 @@ const createChannelSchema = z.object({
 channelsRouter.get('/', async (_req, res) => {
   try {
     const channels = await getActiveChannels();
+
+    // Backfill missing photos
+    await Promise.all(
+      channels.map(async (ch) => {
+        if (!ch.photo_url) {
+          try {
+            const info = await getChannelInfo(ch.telegram_channel_id);
+            if (info?.photoUrl) {
+              await updateChannelPhoto(ch.id, info.photoUrl);
+              ch.photo_url = info.photoUrl;
+            }
+          } catch {}
+        }
+      }),
+    );
+
     res.json(channels);
   } catch (err) {
     console.error('[api] GET /channels error:', err);
@@ -103,6 +120,7 @@ channelsRouter.post('/', async (req, res) => {
       body.price,
       body.durationHours,
       body.cpcPrice,
+      info.photoUrl,
     );
 
     await updateChannelBotAdmin(channel.id, true);

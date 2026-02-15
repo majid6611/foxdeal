@@ -16,7 +16,7 @@ export async function isBotAdminOfChannel(channelId: string | number): Promise<b
 }
 
 /**
- * Get channel info from Telegram.
+ * Get channel info from Telegram, including profile photo URL.
  * Returns null if the bot can't access the channel.
  */
 export async function getChannelInfo(channelId: string | number) {
@@ -26,11 +26,25 @@ export async function getChannelInfo(channelId: string | number) {
 
     const memberCount = await bot.api.getChatMemberCount(channelId);
 
+    // Try to get the channel profile photo URL
+    let photoUrl: string | null = null;
+    try {
+      if (chat.photo) {
+        const file = await bot.api.getFile(chat.photo.big_file_id);
+        if (file.file_path) {
+          photoUrl = `https://api.telegram.org/file/bot${env.BOT_TOKEN}/${file.file_path}`;
+        }
+      }
+    } catch (err) {
+      console.warn('[bot] Could not fetch channel photo:', (err as Error).message);
+    }
+
     return {
       id: chat.id,
       title: chat.title,
       username: 'username' in chat ? chat.username : undefined,
       memberCount,
+      photoUrl,
     };
   } catch {
     return null;
@@ -39,18 +53,21 @@ export async function getChannelInfo(channelId: string | number) {
 
 /**
  * Post a message to a channel. Returns the message ID or null on failure.
- * If a trackingUrl is provided, adds an inline "Learn More" button that redirects
- * through our click tracker for unique visitor dedup + CPC billing.
+ * If a dealId is provided (and the deal has a link), adds an inline "Learn More"
+ * button using a t.me deep link (startapp=click_{dealId}). Because it's a t.me
+ * URL, Telegram opens it instantly — no "Open this link?" confirmation.
+ * The Mini App handles click tracking + redirect to the final destination.
  */
 export async function postToChannel(
   channelId: string | number,
   text: string,
   imageUrl?: string | null,
-  trackingUrl?: string | null,
+  dealId?: number | null,
 ): Promise<number | null> {
   try {
-    const reply_markup = trackingUrl
-      ? { inline_keyboard: [[{ text: '🔗 Learn More', url: trackingUrl }]] }
+    const { botUsername } = await import('./index.js');
+    const reply_markup = dealId && botUsername
+      ? { inline_keyboard: [[{ text: '🔗 Learn More', url: `https://t.me/${botUsername}?startapp=click_${dealId}` }]] }
       : undefined;
 
     if (imageUrl) {

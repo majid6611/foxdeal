@@ -40,6 +40,7 @@ export interface Channel {
   bot_is_admin: boolean;
   is_active: boolean;
   approval_status: ChannelApprovalStatus;
+  photo_url: string | null;
 }
 
 export interface Deal {

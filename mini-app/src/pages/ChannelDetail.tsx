@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { createDeal, uploadImage, type Channel } from '../api';
-import { Button, Input, Text } from '@telegram-tools/ui-kit';
+import { Button, Text } from '@telegram-tools/ui-kit';
 
 export function ChannelDetail({
   channel,
@@ -54,10 +54,34 @@ export function ChannelDetail({
     if (fileRef.current) fileRef.current.value = '';
   };
 
+  /**
+   * Normalize the link field:
+   * - @username → https://t.me/username
+   * - Regular URLs are kept as-is
+   */
+  const normalizeLink = (raw: string): string => {
+    const trimmed = raw.trim();
+    // Telegram @username format
+    if (/^@[a-zA-Z0-9_]{3,}$/.test(trimmed)) {
+      return `https://t.me/${trimmed.slice(1)}`;
+    }
+    return trimmed;
+  };
+
+  const isValidLink = (raw: string): boolean => {
+    const trimmed = raw.trim();
+    if (!trimmed) return false;
+    // Accept @username (3+ chars after @)
+    if (/^@[a-zA-Z0-9_]{3,}$/.test(trimmed)) return true;
+    // Accept URLs
+    try { new URL(trimmed); return true; } catch { return false; }
+  };
+
   const handleSubmit = async () => {
     if (!adText.trim()) { setError('Please write your ad copy'); return; }
+    if (!adLink.trim()) { setError('A link is required for your ad'); return; }
+    if (!isValidLink(adLink)) { setError('Enter a valid URL or Telegram @username'); return; }
     if (pricingModel === 'cpc') {
-      if (!adLink.trim()) { setError('CPC ads require a link for the inline button'); return; }
       if (!budget || Number(budget) < channel.cpc_price) {
         setError(`Budget must be at least ${channel.cpc_price} TON (1 click)`);
         return;
@@ -70,7 +94,7 @@ export function ChannelDetail({
         channelId: channel.id,
         adText: adText.trim(),
         adImageUrl: imageUrl,
-        adLink: adLink.trim() || null,
+        adLink: normalizeLink(adLink),
         pricingModel,
         budget: pricingModel === 'cpc' ? Number(budget) : undefined,
       });
@@ -92,9 +116,17 @@ export function ChannelDetail({
 
       {/* Hero Header */}
       <div className="hero-card">
-        <div className="hero-avatar">{channel.username.charAt(0).toUpperCase()}</div>
-        <div className="hero-name">@{channel.username}</div>
-        <div className="hero-cat">{channel.category}</div>
+        <div className="hero-identity">
+          {channel.photo_url ? (
+            <img src={channel.photo_url} alt="" className="hero-photo" />
+          ) : (
+            <div className="hero-avatar">{channel.username.charAt(0).toUpperCase()}</div>
+          )}
+          <div className="hero-info">
+            <a href={`https://t.me/${channel.username}`} target="_blank" rel="noopener noreferrer" className="hero-name hero-link">@{channel.username}</a>
+            <div className="hero-cat">{channel.category}</div>
+          </div>
+        </div>
         <div className="hero-stats">
           <div className="hero-stat">
             <div className="hero-stat-value">{channel.subscribers.toLocaleString()}</div>
@@ -146,11 +178,13 @@ export function ChannelDetail({
       {pricingModel === 'cpc' && (
         <div className="section-gap">
           <Text type="caption1" color="secondary" className="form-label-tg">Total Budget (TON)</Text>
-          <Input
+          <input
+            className="form-input"
             value={budget}
             type="number"
+            min="1"
             placeholder={`Min ${Math.max(1, Math.ceil(channel.cpc_price))} TON`}
-            onChange={(val) => setBudget(val)}
+            onChange={(e) => setBudget(e.target.value)}
           />
           {estimatedClicks > 0 && (
             <Text type="caption2" color="accent" className="form-hint">
@@ -198,18 +232,19 @@ export function ChannelDetail({
       {/* Link */}
       <div className="section-gap">
         <Text type="caption1" color="secondary" className="form-label-tg">
-          Link {pricingModel === 'cpc' ? '(required for CPC)' : '(optional)'}
+          Link (required)
         </Text>
-        <Input
+        <input
+          className="form-input"
           value={adLink}
-          type="url"
-          placeholder="https://example.com"
-          onChange={(val) => setAdLink(val)}
+          type="text"
+          placeholder="https://example.com or @username"
+          onChange={(e) => setAdLink(e.target.value)}
         />
         <Text type="caption2" color="tertiary" className="form-hint">
-          {pricingModel === 'cpc'
-            ? `Each unique click costs ${channel.cpc_price} TON from your budget`
-            : 'An inline "Learn More" button will appear. Clicks are tracked.'}
+          Enter a URL or Telegram @username. {pricingModel === 'cpc'
+            ? `Each unique click costs ${channel.cpc_price} TON from your budget.`
+            : 'An inline "Learn More" button will appear on the post.'}
         </Text>
       </div>
 
@@ -218,7 +253,7 @@ export function ChannelDetail({
           text={submitting ? 'Submitting...' : `Submit Deal · ${displayPrice}`}
           type="primary"
           onClick={handleSubmit}
-          disabled={submitting || uploading || !adText.trim() || (pricingModel === 'cpc' && !budget)}
+          disabled={submitting || uploading || !adText.trim() || !isValidLink(adLink) || (pricingModel === 'cpc' && !budget)}
           loading={submitting}
         />
       </div>

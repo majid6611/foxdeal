@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getMyChannels, deleteChannel, activateChannel, createChannel, type Channel } from '../api';
-import { Button, Group, GroupItem, Input, Text, Spinner } from '@telegram-tools/ui-kit';
-// Button still used for "List Channel" submit in the form
+import { Button, Group, GroupItem, Text, Spinner } from '@telegram-tools/ui-kit';
 
 const CATEGORIES = ['news', 'tech', 'crypto', 'entertainment', 'education', 'lifestyle', 'business', 'general'];
 
@@ -90,7 +89,7 @@ export function MyChannel({ onBack }: { onBack: () => void }) {
 
           <div className="section-gap">
             <Text type="caption1" color="secondary" className="form-label-tg">Channel Username</Text>
-            <Input value={channelId} placeholder="@yourchannel" onChange={(v) => setChannelId(v)} />
+            <input className="form-input" value={channelId} placeholder="@yourchannel" onChange={(e) => setChannelId(e.target.value)} />
             <Text type="caption2" color="tertiary" className="form-hint">Bot must be admin in this channel.</Text>
           </div>
 
@@ -105,11 +104,11 @@ export function MyChannel({ onBack }: { onBack: () => void }) {
 
           <div className="section-gap">
             <Text type="caption1" color="secondary" className="form-label-tg">Price (TON)</Text>
-            <Input value={price} type="number" placeholder="100" onChange={(v) => setPrice(v)} />
+            <input className="form-input" type="number" min="1" value={price} placeholder="100" onChange={(e) => setPrice(e.target.value)} />
           </div>
           <div className="section-gap">
             <Text type="caption1" color="secondary" className="form-label-tg">Duration (hours)</Text>
-            <Input value={durationHours} type="number" placeholder="24" onChange={(v) => setDurationHours(v)} />
+            <input className="form-input" type="number" min="1" value={durationHours} placeholder="24" onChange={(e) => setDurationHours(e.target.value)} />
           </div>
 
           <div className="section-divider"><span className="section-divider-text">CPC Pricing (optional)</span></div>
@@ -117,7 +116,7 @@ export function MyChannel({ onBack }: { onBack: () => void }) {
 
           <div className="section-gap">
             <Text type="caption1" color="secondary" className="form-label-tg">CPC Price (TON/click)</Text>
-            <Input value={cpcPrice} type="number" placeholder="e.g. 0.5 or 5" onChange={(v) => setCpcPrice(v)} />
+            <input className="form-input" type="number" min="0.1" step="0.1" value={cpcPrice} placeholder="e.g. 0.5 or 5" onChange={(e) => setCpcPrice(e.target.value)} />
           </div>
 
           <div style={{ marginTop: 18 }}>

@@ -117,7 +117,7 @@ export async function sendDealForAdminReview(deal: Deal): Promise<void> {
  * Should be called once during bot startup.
  */
 export function registerAdminChannelHandlers(): void {
-  bot.on('callback_query:data', async (ctx) => {
+  bot.on('callback_query:data', async (ctx, next) => {
     const data = ctx.callbackQuery.data;
 
     // ── Channel approval ──
@@ -131,6 +131,9 @@ export function registerAdminChannelHandlers(): void {
       await handleDealCallback(ctx, data);
       return;
     }
+
+    // Not handled here — pass to next middleware (e.g. ad_click handler)
+    await next();
   });
 
   console.log('[bot] Admin channel handlers registered (channels + deals)');

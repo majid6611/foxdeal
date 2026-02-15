@@ -36,6 +36,7 @@ export interface Channel {
   bot_is_admin: boolean;
   is_active: boolean;
   approval_status: 'pending' | 'approved' | 'rejected';
+  photo_url: string | null;
 }
 
 export interface Deal {
