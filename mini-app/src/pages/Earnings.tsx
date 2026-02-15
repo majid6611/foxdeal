@@ -1,19 +1,66 @@
 import { useEffect, useState } from 'react';
-import { getEarnings, type EarningsSummary, type EarningRecord } from '../api';
+import { getEarnings, saveWallet, type EarningsSummary, type EarningRecord } from '../api';
 import { Group, GroupItem, Text, Spinner } from '@telegram-tools/ui-kit';
 
-export function Earnings() {
+export function Earnings({ connectedWallet }: { connectedWallet: string | null }) {
   const [summary, setSummary] = useState<EarningsSummary | null>(null);
   const [history, setHistory] = useState<EarningRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  const [walletAddress, setWalletAddress] = useState('');
+  const [walletSaved, setWalletSaved] = useState(false);
+  const [walletEditing, setWalletEditing] = useState(false);
+  const [walletSaving, setWalletSaving] = useState(false);
+  const [walletError, setWalletError] = useState('');
+
   useEffect(() => {
     getEarnings()
-      .then((data) => { setSummary(data.summary); setHistory(data.history); })
+      .then((data) => {
+        setSummary(data.summary);
+        setHistory(data.history);
+        if (data.walletAddress) {
+          setWalletAddress(data.walletAddress);
+          setWalletSaved(true);
+        } else if (connectedWallet) {
+          // Auto-fill from connected TonConnect wallet
+          setWalletAddress(connectedWallet);
+          // Auto-save it
+          saveWallet(connectedWallet)
+            .then(() => setWalletSaved(true))
+            .catch(() => {}); // silently fail, user can save manually
+        }
+      })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
+
+  // If connected wallet changes and no wallet is saved yet, auto-update
+  useEffect(() => {
+    if (connectedWallet && !walletSaved && !walletEditing) {
+      setWalletAddress(connectedWallet);
+      saveWallet(connectedWallet)
+        .then(() => setWalletSaved(true))
+        .catch(() => {});
+    }
+  }, [connectedWallet]);
+
+  const handleSaveWallet = async () => {
+    const trimmed = walletAddress.trim();
+    if (!trimmed) { setWalletError('Please enter a wallet address'); return; }
+    if (trimmed.length < 20) { setWalletError('Wallet address is too short'); return; }
+    setWalletSaving(true);
+    setWalletError('');
+    try {
+      await saveWallet(trimmed);
+      setWalletSaved(true);
+      setWalletEditing(false);
+    } catch (e) {
+      setWalletError((e as Error).message);
+    } finally {
+      setWalletSaving(false);
+    }
+  };
 
   if (loading) return <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><Spinner size="32px" /></div>;
   if (error) return <Text color="danger">{error}</Text>;
@@ -47,6 +94,55 @@ export function Earnings() {
           <Text type="caption2" color="secondary">Fees (5%)</Text>
           <div className="earnings-card-value" style={{ color: 'var(--tg-hint)' }}>{summary.platform_fees} TON</div>
         </div>
+      </div>
+
+      {/* Payout Wallet */}
+      <div className="wallet-payout-card">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <Text type="caption1" weight="bold">Payout Wallet</Text>
+          {walletSaved && !walletEditing && (
+            <button className="wallet-edit-btn" onClick={() => setWalletEditing(true)}>Edit</button>
+          )}
+        </div>
+        {walletSaved && !walletEditing ? (
+          <div className="wallet-address-display">
+            <span className="wallet-dot-green" />
+            <span className="wallet-address-text">{walletAddress.slice(0, 8)}...{walletAddress.slice(-6)}</span>
+          </div>
+        ) : (
+          <>
+            <input
+              className="form-input"
+              value={walletAddress}
+              type="text"
+              placeholder="Your TON wallet address"
+              onChange={(e) => setWalletAddress(e.target.value)}
+            />
+            {walletError && <Text type="caption2" color="danger" style={{ marginTop: 4 }}>{walletError}</Text>}
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              <button
+                className="action-btn action-btn-approve"
+                style={{ flex: 1 }}
+                onClick={handleSaveWallet}
+                disabled={walletSaving || !walletAddress.trim()}
+              >
+                {walletSaving ? 'Saving...' : '💾 Save'}
+              </button>
+              {walletEditing && (
+                <button
+                  className="action-btn action-btn-ghost"
+                  style={{ flex: 0 }}
+                  onClick={() => { setWalletEditing(false); setWalletError(''); }}
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+            <Text type="caption2" color="tertiary" className="form-hint">
+              Earnings will be sent to this address after the 30-day hold period.
+            </Text>
+          </>
+        )}
       </div>
 
       {/* Next payout */}

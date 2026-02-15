@@ -1,4 +1,4 @@
-import { bot } from './index.js';
+import { bot, botUsername } from './index.js';
 import { postToChannel, isMessageAlive } from './admin.js';
 import { transitionDeal, refundEscrow } from '../escrow/transitions.js';
 import { getDealById, getChannelById } from '../db/queries.js';
@@ -27,15 +27,27 @@ export async function autoPostDeal(dealId: number): Promise<void> {
     return;
   }
 
+  // Build the inline button URL:
+  // - CPC ads: use deep link for click tracking + billing
+  // - Time-based ads: use the direct URL (no tracking overhead, opens instantly)
+  let buttonUrl: string | null = null;
+  if (deal.ad_link) {
+    if (deal.pricing_model === 'cpc' && botUsername) {
+      buttonUrl = `https://t.me/${botUsername}?startapp=click_${dealId}`;
+    } else {
+      buttonUrl = deal.ad_link;
+    }
+  }
+
   // Attempt to post (retry up to 3 times with backoff)
-  // Pass dealId so the inline button uses a t.me deep link for click tracking + redirect
   let messageId: number | null = null;
   for (let attempt = 1; attempt <= 3; attempt++) {
     messageId = await postToChannel(
       channel.telegram_channel_id,
       deal.ad_text,
       deal.ad_image_url,
-      deal.ad_link ? dealId : null,
+      buttonUrl,
+      deal.button_text,
     );
     if (messageId) break;
     if (attempt < 3) {

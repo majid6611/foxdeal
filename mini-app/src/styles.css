@@ -501,6 +501,65 @@ a.hero-link { transition: color 0.2s; }
 }
 .img-upload-icon { font-size: 32px; margin-bottom: 6px; }
 
+/* ─── Button Preset Grid ─── */
+.btn-preset-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.btn-preset {
+  padding: 8px 12px;
+  border: 1.5px solid var(--border-subtle);
+  border-radius: 20px;
+  background: var(--tg-secondary-bg);
+  color: var(--tg-text);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.btn-preset:hover {
+  border-color: color-mix(in srgb, var(--tg-hint) 50%, transparent);
+}
+.btn-preset.active {
+  border-color: var(--fox-orange);
+  background: rgba(255, 107, 43, 0.12);
+  color: var(--fox-orange);
+  font-weight: 700;
+}
+.btn-preset-custom {
+  border-style: dashed;
+}
+.btn-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+.btn-preview-label {
+  font-size: 12px;
+  color: var(--tg-hint);
+  font-weight: 500;
+}
+.btn-preview-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 16px;
+  background: color-mix(in srgb, var(--fox-blue) 15%, transparent);
+  color: var(--fox-blue);
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid color-mix(in srgb, var(--fox-blue) 25%, transparent);
+}
+
+.ad-preview-btn-row {
+  margin-top: 8px;
+  display: flex;
+}
+
 /* ─── Status Pills ─── */
 .status-pill {
   display: inline-flex; align-items: center; gap: 4px;
@@ -592,6 +651,46 @@ a.hero-link { transition: color 0.2s; }
 .earnings-card-value {
   font-size: 20px; font-weight: 800;
   margin-top: 4px;
+}
+
+/* ─── Payout Wallet Card ─── */
+.wallet-payout-card {
+  background: var(--tg-secondary-bg);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 16px;
+  border: 1px solid var(--border-subtle);
+}
+.wallet-edit-btn {
+  background: none;
+  border: none;
+  color: var(--fox-blue);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+.wallet-address-display {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: rgba(52, 199, 89, 0.08);
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(52, 199, 89, 0.2);
+}
+.wallet-dot-green {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--fox-success);
+  flex-shrink: 0;
+}
+.wallet-address-text {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--tg-text);
+  font-family: monospace;
 }
 
 /* ─── Ad Preview (in DealDetail) ─── */
@@ -782,6 +881,33 @@ a.hero-link { transition: color 0.2s; }
   font-size: 14px;
   color: var(--tg-hint);
   font-weight: 500;
+}
+.click-redirect-btn {
+  display: block;
+  margin-top: 16px;
+  padding: 16px 40px;
+  background: var(--gradient-fox);
+  color: #fff;
+  font-size: 17px;
+  font-weight: 700;
+  border: none;
+  border-radius: var(--radius);
+  text-decoration: none;
+  text-align: center;
+  box-shadow: 0 4px 16px rgba(255, 107, 43, 0.35);
+  transition: transform 0.15s;
+}
+.click-redirect-btn:active {
+  transform: scale(0.96);
+}
+.click-redirect-close {
+  margin-top: 12px;
+  background: none;
+  border: none;
+  color: var(--tg-hint);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 8px 16px;
 }
 
 .splash {

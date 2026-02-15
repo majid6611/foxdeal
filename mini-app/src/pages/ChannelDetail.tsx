@@ -23,6 +23,20 @@ export function ChannelDetail({
   const [pricingModel, setPricingModel] = useState<'time' | 'cpc'>('time');
   const [budget, setBudget] = useState('');
 
+  const BUTTON_PRESETS = [
+    '🔗 Learn More',
+    '🚀 Get Started',
+    '📢 Join Channel',
+    '🛒 Shop Now',
+    '💬 Contact Us',
+    '📱 Open App',
+    '🎮 Play Now',
+    '📥 Download',
+  ];
+  const [buttonText, setButtonText] = useState(BUTTON_PRESETS[0]);
+  const [customButton, setCustomButton] = useState(false);
+  const [customButtonText, setCustomButtonText] = useState('');
+
   const hasCpc = channel.cpc_price > 0;
   const estimatedClicks = pricingModel === 'cpc' && budget && channel.cpc_price > 0
     ? Math.floor(Number(budget) / channel.cpc_price)
@@ -77,10 +91,16 @@ export function ChannelDetail({
     try { new URL(trimmed); return true; } catch { return false; }
   };
 
+  const finalButtonText = customButton ? customButtonText.trim() : buttonText;
+
   const handleSubmit = async () => {
     if (!adText.trim()) { setError('Please write your ad copy'); return; }
     if (!adLink.trim()) { setError('A link is required for your ad'); return; }
     if (!isValidLink(adLink)) { setError('Enter a valid URL or Telegram @username'); return; }
+    if (customButton && (customButtonText.trim().length < 2 || customButtonText.trim().length > 24)) {
+      setError('Button text must be 2–24 characters');
+      return;
+    }
     if (pricingModel === 'cpc') {
       if (!budget || Number(budget) < channel.cpc_price) {
         setError(`Budget must be at least ${channel.cpc_price} TON (1 click)`);
@@ -95,6 +115,7 @@ export function ChannelDetail({
         adText: adText.trim(),
         adImageUrl: imageUrl,
         adLink: normalizeLink(adLink),
+        buttonText: finalButtonText,
         pricingModel,
         budget: pricingModel === 'cpc' ? Number(budget) : undefined,
       });
@@ -244,8 +265,45 @@ export function ChannelDetail({
         <Text type="caption2" color="tertiary" className="form-hint">
           Enter a URL or Telegram @username. {pricingModel === 'cpc'
             ? `Each unique click costs ${channel.cpc_price} TON from your budget.`
-            : 'An inline "Learn More" button will appear on the post.'}
+            : 'Clicks are tracked.'}
         </Text>
+      </div>
+
+      {/* Button label selector */}
+      <div className="section-gap">
+        <Text type="caption1" color="secondary" className="form-label-tg">Button Label</Text>
+        <select
+          className="form-select"
+          value={customButton ? '__custom__' : buttonText}
+          onChange={(e) => {
+            if (e.target.value === '__custom__') {
+              setCustomButton(true);
+            } else {
+              setCustomButton(false);
+              setButtonText(e.target.value);
+            }
+          }}
+        >
+          {BUTTON_PRESETS.map((preset) => (
+            <option key={preset} value={preset}>{preset}</option>
+          ))}
+          <option value="__custom__">✏️ Custom...</option>
+        </select>
+        {customButton && (
+          <div style={{ marginTop: 8 }}>
+            <input
+              className="form-input"
+              value={customButtonText}
+              type="text"
+              placeholder="e.g. Visit Us"
+              maxLength={24}
+              onChange={(e) => setCustomButtonText(e.target.value)}
+            />
+            <Text type="caption2" color="tertiary" align="right" className="form-hint">
+              {customButtonText.length} / 24
+            </Text>
+          </div>
+        )}
       </div>
 
       <div style={{ marginTop: 20 }}>
@@ -253,7 +311,7 @@ export function ChannelDetail({
           text={submitting ? 'Submitting...' : `Submit Deal · ${displayPrice}`}
           type="primary"
           onClick={handleSubmit}
-          disabled={submitting || uploading || !adText.trim() || !isValidLink(adLink) || (pricingModel === 'cpc' && !budget)}
+          disabled={submitting || uploading || !adText.trim() || !isValidLink(adLink) || (customButton && (customButtonText.trim().length < 2 || customButtonText.trim().length > 24)) || (pricingModel === 'cpc' && !budget)}
           loading={submitting}
         />
       </div>

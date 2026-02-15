@@ -22,6 +22,7 @@ export interface User {
   id: number;
   telegram_id: number;
   role: UserRole;
+  wallet_address: string | null;
   created_at: Date;
 }
 
@@ -63,6 +64,7 @@ export interface Deal {
   paid_at: Date | null;
   completed_at: Date | null;
   rejection_reason: string | null;
+  button_text: string;
   created_at: Date;
   updated_at: Date;
 }

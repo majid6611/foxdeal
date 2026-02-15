@@ -22,6 +22,14 @@ export async function getUserByTelegramId(telegramId: number): Promise<User | nu
   return rows[0] ?? null;
 }
 
+export async function updateUserWallet(userId: number, walletAddress: string | null): Promise<User> {
+  const { rows } = await pool.query<User>(
+    'UPDATE users SET wallet_address = $2 WHERE id = $1 RETURNING *',
+    [userId, walletAddress],
+  );
+  return rows[0];
+}
+
 // ── Channels ─────────────────────────────────────────────────────────
 
 export async function createChannel(
@@ -123,12 +131,13 @@ export async function createDeal(
   price: number,
   pricingModel: 'time' | 'cpc' = 'time',
   budget: number = 0,
+  buttonText: string = '🔗 Learn More',
 ): Promise<Deal> {
   const { rows } = await pool.query<Deal>(
-    `INSERT INTO deals (advertiser_id, channel_id, ad_text, ad_image_url, ad_link, duration_hours, price, pricing_model, budget, status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'created')
+    `INSERT INTO deals (advertiser_id, channel_id, ad_text, ad_image_url, ad_link, duration_hours, price, pricing_model, budget, button_text, status)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'created')
      RETURNING *`,
-    [advertiserId, channelId, adText, adImageUrl, adLink, durationHours, price, pricingModel, budget],
+    [advertiserId, channelId, adText, adImageUrl, adLink, durationHours, price, pricingModel, budget, buttonText],
   );
   return rows[0];
 }

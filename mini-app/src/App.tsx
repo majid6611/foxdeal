@@ -46,6 +46,8 @@ export function App() {
 
   // Handle startapp deep link for click tracking (e.g. startapp=click_33)
   const [isClickRedirect, setIsClickRedirect] = useState(false);
+  const [redirectUrl, setRedirectUrl] = useState<string | null>(null);
+  const [redirectFailed, setRedirectFailed] = useState(false);
 
   useEffect(() => {
     tg?.ready();
@@ -68,24 +70,30 @@ export function App() {
           }
 
           const url = data.url as string;
+          setRedirectUrl(url);
           const isTgLink = url.includes('t.me/') || url.includes('telegram.me/');
 
-          // Try multiple redirect strategies for cross-platform compatibility
+          // Strategy 1: openTelegramLink (works on desktop & iOS, closes Mini App)
           try {
             if (isTgLink && tg?.openTelegramLink) {
-              tg.openTelegramLink(url); // closes Mini App automatically
+              tg.openTelegramLink(url);
             } else if (tg?.openLink) {
               tg.openLink(url);
             }
           } catch {
-            // Fallback: direct navigation
+            // Will fall through to Strategy 2
           }
 
-          // Fallback: if Mini App methods didn't work (Android), use direct navigation
-          // This runs after a delay to give the native methods time to fire
+          // Strategy 2: After a short delay, navigate the webview directly.
+          // On Android, openTelegramLink doesn't work from startapp context,
+          // but window.location.href to a t.me URL works — Telegram intercepts it.
+          // Do NOT call tg.close() as it cancels the navigation on Android.
           setTimeout(() => {
             window.location.href = url;
-          }, 800);
+          }, 600);
+
+          // Strategy 3: If all else fails after 3s, show manual button
+          setTimeout(() => setRedirectFailed(true), 3000);
         })
         .catch(() => {
           tg?.close();
@@ -171,16 +179,36 @@ export function App() {
           />
         );
       case 'earnings':
-        return <Earnings />;
+        return <Earnings connectedWallet={friendlyAddress || null} />;
     }
   };
 
-  // If this is a click redirect, show a minimal loading state while tracking + opening
+  // If this is a click redirect, show loading or manual open button
   if (isClickRedirect) {
     return (
       <div className="click-redirect">
-        <div className="click-redirect-spinner" />
-        <div className="click-redirect-text">Opening link...</div>
+        {redirectFailed && redirectUrl ? (
+          <>
+            <div className="click-redirect-text">Tap to continue</div>
+            <a
+              href={redirectUrl}
+              className="click-redirect-btn"
+              onClick={() => setTimeout(() => tg?.close(), 300)}
+            >
+              {redirectUrl.includes('t.me/')
+                ? `Open @${redirectUrl.split('t.me/')[1]?.split(/[?/#]/)[0] || 'link'}`
+                : 'Open Link'}
+            </a>
+            <button className="click-redirect-close" onClick={() => tg?.close()}>
+              Close
+            </button>
+          </>
+        ) : (
+          <>
+            <div className="click-redirect-spinner" />
+            <div className="click-redirect-text">Opening link...</div>
+          </>
+        )}
       </div>
     );
   }

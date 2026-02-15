@@ -24,6 +24,7 @@ const createDealSchema = z.object({
   adLink: z.string().url().nullable().optional(),
   pricingModel: z.enum(['time', 'cpc']).default('time'),
   budget: z.number().int().positive().optional(),
+  buttonText: z.string().min(2).max(24).optional(),
 });
 
 // GET /api/deals
@@ -107,6 +108,7 @@ dealsRouter.post('/', async (req, res) => {
       dealPrice,
       body.pricingModel,
       isCpc ? body.budget! : 0,
+      body.buttonText ?? '🔗 Learn More',
     );
 
     // Demo mode: skip admin review, go straight to channel owner approval

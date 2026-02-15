@@ -155,11 +155,16 @@ export function DealDetail({
       <div className="ad-preview-card">
         <div className="ad-preview-text">{deal.ad_text}</div>
         {deal.ad_link && (
-          <div className="ad-preview-link" onClick={() => window.open(deal.ad_link!, '_blank')}>
-            <span>🔗</span>
-            <a href={deal.ad_link} target="_blank" rel="noopener noreferrer">{deal.ad_link}</a>
-            <span style={{ color: 'var(--tg-hint)', fontSize: 16 }}>›</span>
-          </div>
+          <>
+            <div className="ad-preview-link" onClick={() => window.open(deal.ad_link!, '_blank')}>
+              <span>🔗</span>
+              <a href={deal.ad_link} target="_blank" rel="noopener noreferrer">{deal.ad_link}</a>
+              <span style={{ color: 'var(--tg-hint)', fontSize: 16 }}>›</span>
+            </div>
+            <div className="ad-preview-btn-row">
+              <div className="btn-preview-button">{deal.button_text || '🔗 Learn More'}</div>
+            </div>
+          </>
         )}
       </div>
 

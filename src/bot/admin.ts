@@ -53,21 +53,20 @@ export async function getChannelInfo(channelId: string | number) {
 
 /**
  * Post a message to a channel. Returns the message ID or null on failure.
- * If a dealId is provided (and the deal has a link), adds an inline "Learn More"
- * button using a t.me deep link (startapp=click_{dealId}). Because it's a t.me
- * URL, Telegram opens it instantly — no "Open this link?" confirmation.
- * The Mini App handles click tracking + redirect to the final destination.
+ *
+ * For CPC ads: uses a t.me deep link (startapp=click_{dealId}) for click tracking + billing.
+ * For time-based ads: uses the direct URL (no tracking overhead, opens instantly).
  */
 export async function postToChannel(
   channelId: string | number,
   text: string,
   imageUrl?: string | null,
-  dealId?: number | null,
+  buttonUrl?: string | null,
+  buttonLabel?: string | null,
 ): Promise<number | null> {
   try {
-    const { botUsername } = await import('./index.js');
-    const reply_markup = dealId && botUsername
-      ? { inline_keyboard: [[{ text: '🔗 Learn More', url: `https://t.me/${botUsername}?startapp=click_${dealId}` }]] }
+    const reply_markup = buttonUrl
+      ? { inline_keyboard: [[{ text: buttonLabel || '🔗 Learn More', url: buttonUrl }]] }
       : undefined;
 
     if (imageUrl) {

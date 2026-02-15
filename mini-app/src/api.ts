@@ -59,6 +59,7 @@ export interface Deal {
   paid_at: string | null;
   completed_at: string | null;
   rejection_reason: string | null;
+  button_text: string;
   created_at: string;
   updated_at: string;
 }
@@ -90,6 +91,7 @@ export const createDeal = (data: {
   adLink?: string | null;
   pricingModel?: 'time' | 'cpc';
   budget?: number;
+  buttonText?: string;
 }) => request<Deal>('/deals', { method: 'POST', body: JSON.stringify(data) });
 export const approveDeal = (id: number) =>
   request<Deal>(`/deals/${id}/approve`, { method: 'POST' });
@@ -140,7 +142,16 @@ export interface EarningRecord {
 }
 
 export const getEarnings = () =>
-  request<{ summary: EarningsSummary; history: EarningRecord[] }>('/earnings');
+  request<{ summary: EarningsSummary; history: EarningRecord[]; walletAddress: string | null }>('/earnings');
+
+export const getWallet = () =>
+  request<{ walletAddress: string | null }>('/earnings/wallet');
+
+export const saveWallet = (walletAddress: string) =>
+  request<{ walletAddress: string }>('/earnings/wallet', {
+    method: 'POST',
+    body: JSON.stringify({ walletAddress }),
+  });
 
 // Upload
 export async function uploadImage(file: File): Promise<string> {
