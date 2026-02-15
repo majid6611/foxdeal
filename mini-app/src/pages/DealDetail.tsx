@@ -181,9 +181,6 @@ export function DealDetail({
         ) : (
           <>
             <GroupItem text="Duration" after={<Text type="body" weight="medium">{deal.duration_hours}h</Text>} />
-            {deal.ad_link && (
-              <GroupItem text="Link Clicks" after={<Text type="body" weight="bold" color="accent">{deal.click_count}</Text>} />
-            )}
           </>
         )}
         {deal.posted_at && (

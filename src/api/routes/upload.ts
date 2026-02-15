@@ -67,7 +67,9 @@ uploadRouter.post('/', telegramAuth, async (req: Request, res: Response) => {
 
 // GET /api/upload/:filename — serve uploaded images
 uploadRouter.get('/:filename', (req: Request, res: Response) => {
-  const filename = req.params.filename.replace(/[^a-zA-Z0-9._-]/g, '');
+  const rawFilename = req.params.filename;
+  const filename = (Array.isArray(rawFilename) ? rawFilename[0] : rawFilename ?? '')
+    .replace(/[^a-zA-Z0-9._-]/g, '');
   const filepath = path.join(UPLOAD_DIR, filename);
 
   if (!fs.existsSync(filepath)) {

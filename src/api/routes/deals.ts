@@ -125,10 +125,6 @@ dealsRouter.post('/', async (req, res) => {
       res.status(400).json({ error: 'Invalid input', details: err.errors });
       return;
     }
-    if ((err as any)?.constraint === 'idx_deals_active_unique') {
-      res.status(409).json({ error: 'You already have an active deal for this channel. Cancel or wait for it to complete before creating a new one.' });
-      return;
-    }
     console.error('[api] POST /deals error:', err);
     res.status(500).json({ error: 'Failed to create deal' });
   }
