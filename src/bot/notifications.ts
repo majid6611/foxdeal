@@ -1,6 +1,7 @@
 import { bot } from './index.js';
 import { pool } from '../db/index.js';
 import { getChannelById } from '../db/queries.js';
+import { env } from '../config/env.js';
 import type { Deal } from '../shared/types.js';
 
 /**
@@ -35,14 +36,47 @@ export async function notifyOwnerNewDeal(deal: Deal): Promise<void> {
   const channel = await getChannelById(deal.channel_id);
   if (!channel) return;
 
-  await sendDM(
-    channel.owner_id,
+  const telegramId = await getTelegramId(channel.owner_id);
+  if (!telegramId) return;
+
+  const pricingInfo = deal.pricing_model === 'cpc'
+    ? `CPC (${deal.budget} TON budget)`
+    : `${deal.price} TON / ${deal.duration_hours}h`;
+
+  const text =
     `<b>New ad request!</b>\n\n` +
-    `Channel: @${channel.username}\n` +
-    `Price: ${deal.price} TON\n\n` +
-    `<i>Ad copy:</i>\n${escapeHtml(deal.ad_text)}\n\n` +
-    `Open the Mini App to approve or reject.`,
-  );
+    `<b>Channel:</b> @${escapeHtml(channel.username)}\n` +
+    `<b>Deal ID:</b> #${deal.id}\n` +
+    `<b>Pricing:</b> ${pricingInfo}\n\n` +
+    `<b>Ad copy:</b>\n${escapeHtml(deal.ad_text)}` +
+    (deal.ad_link ? `\n\n<b>Link:</b> ${escapeHtml(deal.ad_link)}` : '');
+
+  const replyMarkup = {
+    inline_keyboard: [[
+      { text: '✅ Approve', callback_data: `owner_ad_approve:${deal.id}` },
+      { text: '❌ Reject', callback_data: `owner_ad_reject:${deal.id}` },
+    ]],
+  };
+
+  try {
+    if (deal.ad_image_url) {
+      // Telegram photo captions are limited; trim while preserving the key details.
+      const caption = text.length > 1000 ? `${text.slice(0, 997)}...` : text;
+      await bot.api.sendPhoto(telegramId, resolveImageUrl(deal.ad_image_url), {
+        caption,
+        parse_mode: 'HTML',
+        reply_markup: replyMarkup,
+      });
+      return;
+    }
+  } catch (err) {
+    console.warn('[notify] Failed to send ad image preview, falling back to text:', (err as Error).message);
+  }
+
+  await bot.api.sendMessage(telegramId, text, {
+    parse_mode: 'HTML',
+    reply_markup: replyMarkup,
+  });
 }
 
 /**
@@ -120,4 +154,12 @@ function escapeHtml(text: string): string {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
+}
+
+function resolveImageUrl(url: string): string {
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    return url;
+  }
+  const base = env.MINI_APP_URL.replace(/\/$/, '');
+  return `${base}${url}`;
 }

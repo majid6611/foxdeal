@@ -1,8 +1,8 @@
 import { bot } from './index.js';
 import { env } from '../config/env.js';
-import { approveChannel, rejectChannel, getChannelById, getDealById } from '../db/queries.js';
+import { approveChannel, rejectChannel, getChannelById, getDealById, getUserByTelegramId } from '../db/queries.js';
 import { transitionDeal } from '../escrow/transitions.js';
-import { notifyOwnerNewDeal, notifyAdvertiserRejected } from './notifications.js';
+import { notifyOwnerNewDeal, notifyAdvertiserApproved, notifyAdvertiserRejected } from './notifications.js';
 import type { Channel, Deal } from '../shared/types.js';
 
 // ── Helper: get a user's Telegram ID from DB user ID ─────────────────
@@ -129,6 +129,12 @@ export function registerAdminChannelHandlers(): void {
     // ── Deal (ad) approval ──
     if (data.startsWith('ad_approve:') || data.startsWith('ad_reject:')) {
       await handleDealCallback(ctx, data);
+      return;
+    }
+
+    // ── Owner direct deal approval from DM ──
+    if (data.startsWith('owner_ad_approve:') || data.startsWith('owner_ad_reject:')) {
+      await handleOwnerDealCallback(ctx, data);
       return;
     }
 
@@ -281,6 +287,68 @@ async function handleDealCallback(ctx: any, data: string): Promise<void> {
   }
 }
 
+// ── Owner deal callback handler (from owner DM) ─────────────────────
+
+async function handleOwnerDealCallback(ctx: any, data: string): Promise<void> {
+  const [action, dealIdStr] = data.split(':');
+  const dealId = Number(dealIdStr);
+
+  if (!dealId || isNaN(dealId)) {
+    await ctx.answerCallbackQuery({ text: 'Invalid deal ID' });
+    return;
+  }
+
+  try {
+    const deal = await getDealById(dealId);
+    if (!deal) {
+      await ctx.answerCallbackQuery({ text: 'Deal not found' });
+      return;
+    }
+
+    const channel = await getChannelById(deal.channel_id);
+    if (!channel) {
+      await ctx.answerCallbackQuery({ text: 'Channel not found' });
+      return;
+    }
+
+    const user = await getUserByTelegramId(ctx.from.id);
+    if (!user || user.id !== channel.owner_id) {
+      await ctx.answerCallbackQuery({ text: 'Only the channel owner can do this.' });
+      return;
+    }
+
+    if (deal.status !== 'pending_approval') {
+      await ctx.answerCallbackQuery({ text: `Deal already ${deal.status}` });
+      await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+      return;
+    }
+
+    if (action === 'owner_ad_approve') {
+      const updated = await transitionDeal(dealId, 'pending_approval', 'approved');
+      await notifyAdvertiserApproved(updated).catch((e) =>
+        console.error('[owner] Failed to notify advertiser approved:', e),
+      );
+      await ctx.answerCallbackQuery({ text: '✅ Deal approved' });
+      await markOwnerMessageResolved(ctx, '✅ APPROVED');
+      return;
+    }
+
+    if (action === 'owner_ad_reject') {
+      const updated = await transitionDeal(dealId, 'pending_approval', 'rejected', {
+        rejection_reason: 'Rejected by channel owner',
+      });
+      await notifyAdvertiserRejected(updated).catch((e) =>
+        console.error('[owner] Failed to notify advertiser rejected:', e),
+      );
+      await ctx.answerCallbackQuery({ text: '❌ Deal rejected' });
+      await markOwnerMessageResolved(ctx, '❌ REJECTED');
+    }
+  } catch (err) {
+    console.error('[owner] Deal callback error:', err);
+    await ctx.answerCallbackQuery({ text: 'Error processing action' });
+  }
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function escapeHtml(text: string): string {
@@ -296,4 +364,20 @@ function resolveImageUrl(url: string): string {
   }
   const base = env.MINI_APP_URL.replace(/\/$/, '');
   return `${base}${url}`;
+}
+
+async function markOwnerMessageResolved(ctx: any, label: string): Promise<void> {
+  const originalText = ctx.callbackQuery.message?.text ?? ctx.callbackQuery.message?.caption ?? '';
+  if (ctx.callbackQuery.message?.photo) {
+    await ctx.editMessageCaption({
+      caption: `${originalText}\n\n${label}`,
+      parse_mode: 'HTML',
+      reply_markup: undefined,
+    }).catch(() => {});
+  } else {
+    await ctx.editMessageText(`${originalText}\n\n${label}`, {
+      parse_mode: 'HTML',
+      reply_markup: undefined,
+    }).catch(() => {});
+  }
 }
