@@ -62,20 +62,33 @@ export function App() {
       fetch(`/api/track-click/${dealId}${userId ? `?uid=${userId}` : ''}`)
         .then((r) => r.json())
         .then((data) => {
-          if (data.url) {
-            // Open the destination — use openTelegramLink for t.me links, openLink for others
-            if (data.url.includes('t.me/') || data.url.includes('telegram.me/')) {
-              tg?.openTelegramLink(data.url);
-            } else {
-              tg?.openLink(data.url);
-            }
+          if (!data.url) {
+            tg?.close();
+            return;
           }
-          // Close the mini app after a short delay
-          setTimeout(() => tg?.close(), 300);
+
+          const url = data.url as string;
+          const isTgLink = url.includes('t.me/') || url.includes('telegram.me/');
+
+          // Try multiple redirect strategies for cross-platform compatibility
+          try {
+            if (isTgLink && tg?.openTelegramLink) {
+              tg.openTelegramLink(url); // closes Mini App automatically
+            } else if (tg?.openLink) {
+              tg.openLink(url);
+            }
+          } catch {
+            // Fallback: direct navigation
+          }
+
+          // Fallback: if Mini App methods didn't work (Android), use direct navigation
+          // This runs after a delay to give the native methods time to fire
+          setTimeout(() => {
+            window.location.href = url;
+          }, 800);
         })
         .catch(() => {
-          // If tracking fails, still try to close
-          setTimeout(() => tg?.close(), 500);
+          tg?.close();
         });
       return; // Skip normal initialization
     }
