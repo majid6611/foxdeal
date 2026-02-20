@@ -72,6 +72,8 @@ export interface Deal {
   completed_at: string | null;
   rejection_reason: string | null;
   button_text: string;
+  campaign_id?: number | null;
+  campaign_title?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -129,6 +131,99 @@ export const confirmPayment = (id: number, bocHash?: string) =>
   });
 export const cancelDeal = (id: number) =>
   request<Deal>(`/deals/${id}/cancel`, { method: 'POST' });
+
+// Campaigns (multi-channel)
+export interface Campaign {
+  id: number;
+  advertiser_user_id: number;
+  title: string | null;
+  ad_text: string;
+  ad_image_url: string | null;
+  ad_link: string | null;
+  button_text: string | null;
+  status: 'active' | 'completed' | 'cancelled';
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CampaignListItem extends Campaign {
+  items_total: number;
+  approved: number;
+  paid: number;
+  posted: number;
+  rejected: number;
+  expired: number;
+}
+
+export interface CampaignItem {
+  id: number;
+  campaign_id: number;
+  channel_id: number;
+  deal_id: number | null;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  channel_username: string;
+  channel_category: string;
+  channel_subscribers: number;
+  deal_status: string | null;
+  ad_views: number | null;
+}
+
+export const getCampaigns = () => request<CampaignListItem[]>('/campaigns');
+
+export const getCampaign = (id: number) =>
+  request<{ campaign: Campaign; items: CampaignItem[] }>(`/campaigns/${id}`);
+
+export const createCampaign = (data: {
+  title?: string | null;
+  ad_text: string;
+  ad_image_url?: string | null;
+  ad_link?: string | null;
+  button_text?: string;
+  channel_ids: number[];
+  schedule_at?: string;
+}) =>
+  request<{ campaign: Campaign; items: CampaignItem[] }>('/campaigns', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+
+export const submitCampaign = (id: number) =>
+  request<{ campaign: Campaign; items: CampaignItem[]; submitted: boolean }>(`/campaigns/${id}/submit`, {
+    method: 'POST',
+  });
+
+export const cancelCampaign = (id: number) =>
+  request<{ campaign: Campaign; items: CampaignItem[] }>(`/campaigns/${id}/cancel`, {
+    method: 'POST',
+  });
+
+export const deleteCampaign = (id: number) =>
+  request<{ success: boolean }>(`/campaigns/${id}/delete`, {
+    method: 'POST',
+  });
+
+export const payAllApprovedCampaign = (id: number) =>
+  request<{
+    success: boolean;
+    campaign: Campaign;
+    items: CampaignItem[];
+    summary: {
+      approvedCount: number;
+      paidNow: number;
+      skippedCount: number;
+      failedCount: number;
+    };
+    failed: Array<{ dealId: number; reason: string }>;
+  }>(`/campaigns/${id}/pay-all-approved`, {
+    method: 'POST',
+  });
+
+export const removeCampaignItem = (id: number) =>
+  request<{ success: boolean }>(`/campaign_items/${id}/remove`, {
+    method: 'POST',
+  });
 
 // Earnings
 export interface EarningsSummary {

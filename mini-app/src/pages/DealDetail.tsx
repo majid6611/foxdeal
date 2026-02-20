@@ -196,6 +196,16 @@ export function DealDetail({
 
       {/* Stats */}
       <Group header="Details">
+        {deal.campaign_id && (
+          <GroupItem
+            text="Campaign"
+            after={(
+              <Text type="body" weight="medium">
+                {deal.campaign_title?.trim() || `Campaign #${deal.campaign_id}`}
+              </Text>
+            )}
+          />
+        )}
         {adPostUrl && (
           <GroupItem
             text="Channel Post"

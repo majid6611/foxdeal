@@ -5,6 +5,7 @@ import { dealsRouter } from './routes/deals.js';
 import { paymentsRouter } from './routes/payments.js';
 import { uploadRouter } from './routes/upload.js';
 import { earningsRouter } from './routes/earnings.js';
+import { campaignsRouter } from './routes/campaigns.js';
 import { env } from '../config/env.js';
 
 export const app = express();
@@ -153,6 +154,7 @@ app.use('/api/upload', uploadRouter);
 app.use('/api/channels', channelsRouter);
 app.use('/api/deals', dealsRouter);
 app.use('/api/earnings', earningsRouter);
+app.use('/api', campaignsRouter);
 app.use('/api', paymentsRouter);
 
 export function startApi(port: number): void {

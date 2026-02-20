@@ -8,13 +8,19 @@ import { MyDeals } from './pages/MyDeals';
 import { ListChannel } from './pages/ListChannel';
 import { MyChannel } from './pages/MyChannel';
 import { Earnings } from './pages/Earnings';
+import { CampaignList } from './pages/CampaignList';
+import { CampaignCreate } from './pages/CampaignCreate';
+import { CampaignDetail } from './pages/CampaignDetail';
 import type { Channel } from './api';
 
 type Page =
   | { name: 'catalog' }
   | { name: 'channel'; channel: Channel }
-  | { name: 'deal'; dealId: number; isOwner: boolean }
+  | { name: 'deal'; dealId: number; isOwner: boolean; campaignId?: number }
   | { name: 'my-deals' }
+  | { name: 'campaigns' }
+  | { name: 'campaign-create' }
+  | { name: 'campaign-detail'; campaignId: number }
   | { name: 'incoming' }
   | { name: 'list-channel' }
   | { name: 'my-channels' }
@@ -143,7 +149,13 @@ export function App() {
             dealId={page.dealId}
             isOwner={page.isOwner}
             onBack={() =>
-              setPage(page.isOwner ? { name: 'incoming' } : { name: 'my-deals' })
+              setPage(
+                page.isOwner
+                  ? { name: 'incoming' }
+                  : page.campaignId
+                    ? { name: 'campaign-detail', campaignId: page.campaignId }
+                    : { name: 'my-deals' },
+              )
             }
           />
         );
@@ -154,6 +166,29 @@ export function App() {
             onSelectDeal={(dealId) =>
               setPage({ name: 'deal', dealId, isOwner: false })
             }
+          />
+        );
+      case 'campaigns':
+        return (
+          <CampaignList
+            onCreate={() => setPage({ name: 'campaign-create' })}
+            onOpen={(campaignId) => setPage({ name: 'campaign-detail', campaignId })}
+          />
+        );
+      case 'campaign-create':
+        return (
+          <CampaignCreate
+            onBack={() => setPage({ name: 'campaigns' })}
+            onCreated={(campaignId) => setPage({ name: 'campaign-detail', campaignId })}
+          />
+        );
+      case 'campaign-detail':
+        return (
+          <CampaignDetail
+            campaignId={page.campaignId}
+            onBack={() => setPage({ name: 'campaigns' })}
+            onOpenDeal={(dealId) => setPage({ name: 'deal', dealId, isOwner: false, campaignId: page.campaignId })}
+            onDeleted={() => setPage({ name: 'campaigns' })}
           />
         );
       case 'incoming':
@@ -317,6 +352,12 @@ export function App() {
             onClick={() => setPage({ name: 'catalog' })}
           >
             Catalog
+          </button>
+          <button
+            className={`nav-btn ${page.name === 'campaigns' || page.name === 'campaign-create' || page.name === 'campaign-detail' ? 'active' : ''}`}
+            onClick={() => setPage({ name: 'campaigns' })}
+          >
+            Campaigns
           </button>
           <button
             className={`nav-btn ${page.name === 'my-deals' || (page.name === 'deal' && !page.isOwner) ? 'active' : ''}`}

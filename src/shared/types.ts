@@ -88,6 +88,31 @@ export interface Transaction {
 
 export type EarningStatus = 'pending' | 'paid';
 
+export type CampaignStatus = 'active' | 'completed' | 'cancelled';
+
+export interface Campaign {
+  id: number;
+  advertiser_user_id: number;
+  title: string | null;
+  ad_text: string;
+  ad_image_url: string | null;
+  ad_link: string | null;
+  button_text: string | null;
+  status: CampaignStatus;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface CampaignItem {
+  id: number;
+  campaign_id: number;
+  channel_id: number;
+  deal_id: number | null;
+  status: string;
+  created_at: Date;
+  updated_at: Date;
+}
+
 export interface OwnerEarning {
   id: number;
   owner_id: number;

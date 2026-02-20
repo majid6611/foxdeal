@@ -3,6 +3,8 @@ import type {
   User,
   Channel,
   Deal,
+  Campaign,
+  CampaignItem,
   Transaction,
   OwnerEarning,
   ChannelRating,
@@ -253,7 +255,14 @@ export async function getExhaustedCpcDeals(): Promise<Deal[]> {
 
 export async function getDealById(id: number): Promise<Deal | null> {
   const { rows } = await pool.query<Deal>(
-    'SELECT * FROM deals WHERE id = $1',
+    `SELECT
+      d.*,
+      c.id AS campaign_id,
+      c.title AS campaign_title
+     FROM deals d
+     LEFT JOIN campaign_items ci ON ci.deal_id = d.id
+     LEFT JOIN campaigns c ON c.id = ci.campaign_id
+     WHERE d.id = $1`,
     [id],
   );
   return rows[0] ?? null;
@@ -363,7 +372,15 @@ export async function submitChannelRating(
 
 export async function getDealsByAdvertiser(advertiserId: number): Promise<Deal[]> {
   const { rows } = await pool.query<Deal>(
-    'SELECT * FROM deals WHERE advertiser_id = $1 ORDER BY created_at DESC',
+    `SELECT
+      d.*,
+      c.id AS campaign_id,
+      c.title AS campaign_title
+     FROM deals d
+     LEFT JOIN campaign_items ci ON ci.deal_id = d.id
+     LEFT JOIN campaigns c ON c.id = ci.campaign_id
+     WHERE d.advertiser_id = $1
+     ORDER BY d.created_at DESC`,
     [advertiserId],
   );
   return rows;
@@ -379,8 +396,14 @@ export async function getDealsByChannel(channelId: number): Promise<Deal[]> {
 
 export async function getIncomingDealsForOwner(ownerId: number): Promise<Deal[]> {
   const { rows } = await pool.query<Deal>(
-    `SELECT d.* FROM deals d
+    `SELECT
+      d.*,
+      c2.id AS campaign_id,
+      c2.title AS campaign_title
+     FROM deals d
      JOIN channels c ON d.channel_id = c.id
+     LEFT JOIN campaign_items ci ON ci.deal_id = d.id
+     LEFT JOIN campaigns c2 ON c2.id = ci.campaign_id
      WHERE c.owner_id = $1
      ORDER BY d.created_at DESC`,
     [ownerId],
@@ -436,6 +459,232 @@ export async function getExpiredPendingDeals(timeoutHours: number): Promise<Deal
     [timeoutHours],
   );
   return rows;
+}
+
+// ── Campaigns ───────────────────────────────────────────────────────
+
+export interface CampaignListItem extends Campaign {
+  items_total: number;
+  approved: number;
+  paid: number;
+  posted: number;
+  rejected: number;
+  expired: number;
+}
+
+export interface CampaignItemDetail extends CampaignItem {
+  channel_username: string;
+  channel_category: string;
+  channel_subscribers: number;
+  deal_status: string | null;
+  ad_views: number | null;
+  status: string;
+}
+
+function mapDealStatusToCampaignStatus(dealStatus: string | null): string {
+  if (!dealStatus) return 'draft';
+  if (dealStatus === 'created' || dealStatus === 'pending_admin' || dealStatus === 'pending_approval') return 'waiting_approval';
+  if (dealStatus === 'approved') return 'approved';
+  if (dealStatus === 'escrow_held') return 'paid';
+  if (dealStatus === 'posted' || dealStatus === 'verified' || dealStatus === 'completed') return 'posted';
+  if (dealStatus === 'rejected') return 'rejected';
+  if (dealStatus === 'cancelled') return 'cancelled';
+  if (dealStatus === 'expired' || dealStatus === 'refunded' || dealStatus === 'disputed') return 'expired';
+  return dealStatus;
+}
+
+export async function createCampaign(
+  advertiserUserId: number,
+  title: string | null,
+  adText: string,
+  adImageUrl: string | null,
+  adLink: string | null,
+  buttonText: string | null,
+): Promise<Campaign> {
+  const { rows } = await pool.query<Campaign>(
+    `INSERT INTO campaigns (advertiser_user_id, title, ad_text, ad_image_url, ad_link, button_text)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING *`,
+    [advertiserUserId, title, adText, adImageUrl, adLink, buttonText],
+  );
+  return rows[0];
+}
+
+export async function getCampaignById(campaignId: number): Promise<Campaign | null> {
+  const { rows } = await pool.query<Campaign>(
+    'SELECT * FROM campaigns WHERE id = $1',
+    [campaignId],
+  );
+  return rows[0] ?? null;
+}
+
+export async function getCampaignByIdForAdvertiser(
+  campaignId: number,
+  advertiserUserId: number,
+): Promise<Campaign | null> {
+  const { rows } = await pool.query<Campaign>(
+    'SELECT * FROM campaigns WHERE id = $1 AND advertiser_user_id = $2',
+    [campaignId, advertiserUserId],
+  );
+  return rows[0] ?? null;
+}
+
+export async function createCampaignItem(
+  campaignId: number,
+  channelId: number,
+  dealId: number,
+  status: string,
+): Promise<CampaignItem> {
+  const { rows } = await pool.query<CampaignItem>(
+    `INSERT INTO campaign_items (campaign_id, channel_id, deal_id, status)
+     VALUES ($1, $2, $3, $4)
+     RETURNING *`,
+    [campaignId, channelId, dealId, status],
+  );
+  return rows[0];
+}
+
+export async function getCampaignsByAdvertiser(advertiserUserId: number): Promise<CampaignListItem[]> {
+  const { rows } = await pool.query<{
+    id: number;
+    advertiser_user_id: number;
+    title: string | null;
+    ad_text: string;
+    ad_image_url: string | null;
+    ad_link: string | null;
+    button_text: string | null;
+    status: 'active' | 'completed' | 'cancelled';
+    created_at: Date;
+    updated_at: Date;
+    items_total: string;
+    approved: string;
+    paid: string;
+    posted: string;
+    rejected: string;
+    expired: string;
+  }>(
+    `SELECT
+      c.*,
+      COUNT(ci.id)::int AS items_total,
+      COUNT(*) FILTER (WHERE d.status = 'approved')::int AS approved,
+      COUNT(*) FILTER (WHERE d.status = 'escrow_held')::int AS paid,
+      COUNT(*) FILTER (WHERE d.status IN ('posted', 'verified', 'completed'))::int AS posted,
+      COUNT(*) FILTER (WHERE d.status IN ('rejected', 'cancelled'))::int AS rejected,
+      COUNT(*) FILTER (WHERE d.status IN ('expired', 'refunded', 'disputed'))::int AS expired
+     FROM campaigns c
+     LEFT JOIN campaign_items ci ON ci.campaign_id = c.id
+     LEFT JOIN deals d ON d.id = ci.deal_id
+     WHERE c.advertiser_user_id = $1
+     GROUP BY c.id
+     ORDER BY c.created_at DESC`,
+    [advertiserUserId],
+  );
+
+  return rows.map((row) => ({
+    ...row,
+    items_total: Number(row.items_total),
+    approved: Number(row.approved),
+    paid: Number(row.paid),
+    posted: Number(row.posted),
+    rejected: Number(row.rejected),
+    expired: Number(row.expired),
+  }));
+}
+
+export async function getCampaignItems(campaignId: number): Promise<CampaignItemDetail[]> {
+  const { rows } = await pool.query<{
+    id: number;
+    campaign_id: number;
+    channel_id: number;
+    deal_id: number | null;
+    stored_status: string;
+    created_at: Date;
+    updated_at: Date;
+    channel_username: string;
+    channel_category: string;
+    channel_subscribers: number;
+    deal_status: string | null;
+    ad_views: number | null;
+  }>(
+    `SELECT
+      ci.id,
+      ci.campaign_id,
+      ci.channel_id,
+      ci.deal_id,
+      ci.status AS stored_status,
+      ci.created_at,
+      ci.updated_at,
+      c.username AS channel_username,
+      c.category AS channel_category,
+      c.subscribers AS channel_subscribers,
+      d.status AS deal_status,
+      d.ad_views AS ad_views
+     FROM campaign_items ci
+     JOIN channels c ON c.id = ci.channel_id
+     LEFT JOIN deals d ON d.id = ci.deal_id
+     WHERE ci.campaign_id = $1
+     ORDER BY ci.created_at ASC`,
+    [campaignId],
+  );
+
+  return rows.map((row) => ({
+    id: row.id,
+    campaign_id: row.campaign_id,
+    channel_id: row.channel_id,
+    deal_id: row.deal_id,
+    status: mapDealStatusToCampaignStatus(row.deal_status ?? row.stored_status),
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    channel_username: row.channel_username,
+    channel_category: row.channel_category,
+    channel_subscribers: row.channel_subscribers,
+    deal_status: row.deal_status,
+    ad_views: row.ad_views,
+  }));
+}
+
+export async function getCampaignItemByIdForAdvertiser(
+  itemId: number,
+  advertiserUserId: number,
+): Promise<(CampaignItem & { deal_status: string | null }) | null> {
+  const { rows } = await pool.query<CampaignItem & { deal_status: string | null }>(
+    `SELECT ci.*, d.status AS deal_status
+     FROM campaign_items ci
+     JOIN campaigns c ON c.id = ci.campaign_id
+     LEFT JOIN deals d ON d.id = ci.deal_id
+     WHERE ci.id = $1 AND c.advertiser_user_id = $2`,
+    [itemId, advertiserUserId],
+  );
+  return rows[0] ?? null;
+}
+
+export async function deleteCampaignItem(itemId: number): Promise<void> {
+  await pool.query('DELETE FROM campaign_items WHERE id = $1', [itemId]);
+}
+
+export async function updateCampaignStatus(
+  campaignId: number,
+  status: 'active' | 'completed' | 'cancelled',
+): Promise<Campaign | null> {
+  const { rows } = await pool.query<Campaign>(
+    'UPDATE campaigns SET status = $2 WHERE id = $1 RETURNING *',
+    [campaignId, status],
+  );
+  return rows[0] ?? null;
+}
+
+export async function deleteCampaign(campaignId: number): Promise<void> {
+  await pool.query('DELETE FROM campaigns WHERE id = $1', [campaignId]);
+}
+
+export async function getCampaignDealIds(campaignId: number): Promise<number[]> {
+  const { rows } = await pool.query<{ deal_id: number }>(
+    `SELECT deal_id
+     FROM campaign_items
+     WHERE campaign_id = $1 AND deal_id IS NOT NULL`,
+    [campaignId],
+  );
+  return rows.map((r) => r.deal_id);
 }
 
 // ── Transactions ─────────────────────────────────────────────────────

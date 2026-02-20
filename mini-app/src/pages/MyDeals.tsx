@@ -97,6 +97,11 @@ export function MyDeals({
             <div style={{ fontSize: 12, color: 'var(--tg-hint)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {deal.ad_text.length > 50 ? deal.ad_text.slice(0, 50) + '...' : deal.ad_text}
             </div>
+            {deal.campaign_id && (
+              <div style={{ fontSize: 11, color: 'var(--fox-blue)', marginTop: 4 }}>
+                Campaign: {deal.campaign_title?.trim() || `Campaign #${deal.campaign_id}`}
+              </div>
+            )}
             <div className="ch-card-meta" style={{ marginTop: 4 }}>
               <span className="ch-card-price">
                 {deal.pricing_model === 'cpc'

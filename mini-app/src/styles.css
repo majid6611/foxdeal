@@ -312,6 +312,70 @@ body {
 .ch-card-cpc { font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 4px; background: rgba(39, 188, 255, 0.1); color: var(--fox-cyan); }
 .ch-card-chevron { color: var(--tg-hint); font-size: 16px; opacity: 0.5; flex-shrink: 0; }
 
+.campaign-channel-list {
+  display: grid;
+  gap: 8px;
+}
+
+.campaign-channel-btn {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  background: var(--tg-secondary-bg);
+  border: 1px solid var(--border-subtle);
+  color: var(--tg-text);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.campaign-channel-btn.selected {
+  border-color: rgba(255, 107, 43, 0.45);
+  background: color-mix(in srgb, var(--fox-orange) 12%, transparent);
+}
+
+.campaign-summary-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 12px 0 14px;
+}
+
+.campaign-link-btn {
+  border: none;
+  background: transparent;
+  color: var(--fox-blue);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+}
+
+.campaign-remove-btn {
+  border: none;
+  background: transparent;
+  color: var(--fox-danger);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+}
+
+.campaign-selected-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--tg-secondary-bg);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+}
+
 /* ─── Filter Chips ─── */
 .filter-chips {
   display: flex; gap: 6px; overflow-x: auto;

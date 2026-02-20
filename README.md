@@ -2,6 +2,8 @@
 
 Fox Deal is a Telegram Mini App marketplace where **channel owners** list their channels for advertising and **advertisers** purchase ad placements using **Telegram Stars**. The platform supports both **time-based** and **cost-per-click (CPC)** pricing models with built-in escrow, automated posting, verification, and earnings tracking.
 
+It also supports **Multi-Channel Campaigns**: an advertiser can create one creative and target multiple channels, creating one independent deal per channel under a single campaign dashboard.
+
 ---
 
 ## Architecture
@@ -109,7 +111,7 @@ This starts two containers:
 docker exec market-app npx tsx src/db/migrate.ts
 ```
 
-This creates all required tables (`users`, `channels`, `deals`, `transactions`, `owner_earnings`) and applies any pending schema changes.
+This creates all required tables (`users`, `channels`, `deals`, `transactions`, `owner_earnings`, `campaigns`, `campaign_items`) and applies any pending schema changes.
 
 ### 6. Configure Telegram Bot
 
@@ -177,6 +179,7 @@ fox-deal/
 │   │   └── routes/
 │   │       ├── channels.ts     # Channel CRUD
 │   │       ├── deals.ts        # Deal creation, approve/reject/cancel
+│   │       ├── campaigns.ts    # Multi-channel campaigns (create/list/detail/pay-all)
 │   │       ├── payments.ts     # Telegram Stars invoice creation
 │   │       ├── earnings.ts     # Owner earnings summary + history
 │   │       └── upload.ts       # Image upload/serving
@@ -194,7 +197,7 @@ fox-deal/
 │   │   ├── index.ts            # PostgreSQL connection pool
 │   │   ├── queries.ts          # All SQL queries
 │   │   ├── migrate.ts          # Migration runner
-│   │   └── migrations/         # SQL migration files (001–006)
+│   │   └── migrations/         # SQL migration files (001+)
 │   │
 │   ├── escrow/                 # Escrow state machine
 │   │   ├── index.ts            # Valid transitions, guards
@@ -216,6 +219,9 @@ fox-deal/
 │       └── pages/
 │           ├── Catalog.tsx     # Browse channels
 │           ├── ChannelDetail.tsx  # Create deal (time/CPC selector)
+│           ├── CampaignList.tsx   # Multi-channel campaign list
+│           ├── CampaignCreate.tsx # Multi-channel campaign creation
+│           ├── CampaignDetail.tsx # Campaign item statuses + bulk actions
 │           ├── DealDetail.tsx  # Deal status, actions, CPC stats
 │           ├── MyDeals.tsx     # Advertiser/owner deal list
 │           ├── MyChannel.tsx   # Channel management + add form
@@ -260,6 +266,17 @@ created → pending_approval → approved → escrow_held → posted → verifie
 - Each click on the inline button deducts the CPC price from the budget
 - When budget is exhausted, the post is automatically removed
 - Owner receives the spent amount (floored to integer); unspent budget is refunded
+
+---
+
+## Multi-Channel Campaigns
+
+- Advertiser creates a campaign once with shared ad content.
+- Selects multiple channels (with category-based filtering in UI).
+- System creates one independent deal per selected channel.
+- Each item follows the existing deal lifecycle (approval, payment, posting, verification).
+- Campaign dashboard shows per-channel status, links to each deal, and aggregate metrics.
+- Campaign-specific bulk actions are available (for example, **Pay All Approved**), while legacy single-deal payment endpoints remain unchanged.
 
 ---
 
