@@ -41,7 +41,7 @@ export async function holdEscrow(dealId: number, amount: number): Promise<Deal> 
 
 /**
  * Release payment to owner: verified → completed
- * Records 95% as owner earning (paid out after 30 days), 5% as platform fee.
+ * Records owner earning with tiered platform fee (paid out after hold period).
  */
 export async function releaseEscrow(dealId: number, amount: number): Promise<Deal> {
   const deal = await transitionDeal(dealId, 'verified', 'completed', {
@@ -49,7 +49,7 @@ export async function releaseEscrow(dealId: number, amount: number): Promise<Dea
   });
   await createTransaction(dealId, 'release', amount);
 
-  // Record owner earnings (95/5 split, 30-day payout)
+  // Record owner earnings (tiered fee split, payout hold applies)
   try {
     const channel = await getChannelById(deal.channel_id);
     if (channel) {

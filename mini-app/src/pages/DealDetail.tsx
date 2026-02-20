@@ -176,9 +176,9 @@ export function DealDetail({
       )}
 
       <div className="ad-preview-card">
-        <Text type="caption1" color="secondary" style={{ marginBottom: 8, display: 'block' }}>
-          Ad Copy
-        </Text>
+        <div style={{ marginBottom: 8 }}>
+          <Text type="caption1" color="secondary">Ad Copy</Text>
+        </div>
         <div className="ad-preview-text">{safeAdText}</div>
         {deal.ad_link && (
           <>

@@ -1,5 +1,13 @@
 import { useEffect, useState } from 'react';
-import { getEarnings, saveWallet, type EarningsSummary, type EarningRecord } from '../api';
+import {
+  createWithdrawRequest,
+  getEarnings,
+  saveWallet,
+  type EarningsSummary,
+  type EarningRecord,
+  type WithdrawPreview,
+  type WithdrawRequest,
+} from '../api';
 import { Group, GroupItem, Text, Spinner } from '@telegram-tools/ui-kit';
 
 export function Earnings({ connectedWallet }: { connectedWallet: string | null }) {
@@ -13,12 +21,25 @@ export function Earnings({ connectedWallet }: { connectedWallet: string | null }
   const [walletEditing, setWalletEditing] = useState(false);
   const [walletSaving, setWalletSaving] = useState(false);
   const [walletError, setWalletError] = useState('');
+  const [withdrawRequest, setWithdrawRequest] = useState<WithdrawRequest | null>(null);
+  const [withdrawing, setWithdrawing] = useState(false);
+  const [withdrawError, setWithdrawError] = useState('');
+  const [minWithdrawTon, setMinWithdrawTon] = useState(5);
+  const [withdrawPreview, setWithdrawPreview] = useState<WithdrawPreview>({
+    gross_amount: 0,
+    fee_percent: 0,
+    fee_amount: 0,
+    net_amount: 0,
+  });
 
   useEffect(() => {
     getEarnings()
       .then((data) => {
         setSummary(data.summary);
         setHistory(data.history);
+        setWithdrawRequest(data.withdrawRequest);
+        setMinWithdrawTon(data.minWithdrawTon ?? 5);
+        setWithdrawPreview(data.withdrawPreview);
         if (data.walletAddress) {
           setWalletAddress(data.walletAddress);
           setWalletSaved(true);
@@ -46,6 +67,10 @@ export function Earnings({ connectedWallet }: { connectedWallet: string | null }
   }, [connectedWallet]);
 
   const handleSaveWallet = async () => {
+    if (withdrawRequest?.status === 'pending' || withdrawRequest?.status === 'awaiting_tx_link') {
+      setWalletError('Wallet is locked while withdraw request is active');
+      return;
+    }
     const trimmed = walletAddress.trim();
     if (!trimmed) { setWalletError('Please enter a wallet address'); return; }
     if (trimmed.length < 20) { setWalletError('Wallet address is too short'); return; }
@@ -62,9 +87,26 @@ export function Earnings({ connectedWallet }: { connectedWallet: string | null }
     }
   };
 
+  const handleWithdrawRequest = async () => {
+    setWithdrawError('');
+    setWithdrawing(true);
+    try {
+      const data = await createWithdrawRequest();
+      setWithdrawRequest(data.request);
+      setSummary((prev) => prev ? { ...prev, available_to_withdraw: 0 } : prev);
+      setWithdrawPreview({ gross_amount: 0, fee_percent: 0, fee_amount: 0, net_amount: 0 });
+    } catch (e) {
+      setWithdrawError((e as Error).message);
+    } finally {
+      setWithdrawing(false);
+    }
+  };
+
   if (loading) return <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><Spinner size="32px" /></div>;
   if (error) return <Text color="danger">{error}</Text>;
   if (!summary) return null;
+  const walletLocked = withdrawRequest?.status === 'pending' || withdrawRequest?.status === 'awaiting_tx_link';
+  const belowMinWithdraw = summary.available_to_withdraw < minWithdrawTon;
 
   const fmtDate = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   const daysUntil = (d: string) => { const diff = new Date(d).getTime() - Date.now(); return Math.max(0, Math.ceil(diff / 86400000)); };
@@ -91,19 +133,102 @@ export function Earnings({ connectedWallet }: { connectedWallet: string | null }
           <div className="earnings-card-value" style={{ color: 'var(--fox-success)' }}>{summary.total_paid} TON</div>
         </div>
         <div className="earnings-card">
-          <Text type="caption2" color="secondary">Fees (5%)</Text>
+          <Text type="caption2" color="secondary">Platform Fees</Text>
           <div className="earnings-card-value" style={{ color: 'var(--tg-hint)' }}>{summary.platform_fees} TON</div>
         </div>
       </div>
+
+      <div className="wallet-payout-card" style={{ marginBottom: 14 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <Text type="caption1" weight="bold">Withdraw</Text>
+          <Text type="caption2" color="secondary">Available: {summary.available_to_withdraw} TON</Text>
+        </div>
+        <button
+          className="action-btn action-btn-approve"
+          style={{ width: '100%' }}
+          disabled={
+            withdrawing
+            || summary.available_to_withdraw <= 0
+            || belowMinWithdraw
+            || !walletSaved
+            || withdrawRequest?.status === 'pending'
+            || withdrawRequest?.status === 'awaiting_tx_link'
+          }
+          onClick={handleWithdrawRequest}
+        >
+          {withdrawing ? 'Submitting...' : 'Withdraw Request'}
+        </button>
+        {!walletSaved && (
+          <div style={{ marginTop: 6 }}>
+            <Text type="caption2" color="tertiary">Save a payout wallet first.</Text>
+          </div>
+        )}
+        <div style={{ marginTop: 8 }}>
+          <Text type="caption2" color="secondary">
+            If you withdraw now: Platform fee {withdrawPreview.fee_percent}% ({withdrawPreview.fee_amount} TON)
+          </Text>
+          <Text type="caption2" color="tertiary">
+            You will receive: {withdrawPreview.net_amount} TON
+          </Text>
+        </div>
+        {walletSaved && belowMinWithdraw && (
+          <div style={{ marginTop: 6 }}>
+            <Text type="caption2" color="tertiary">Minimum withdraw amount is {minWithdrawTon} TON.</Text>
+          </div>
+        )}
+        {withdrawError && (
+          <div style={{ marginTop: 6 }}>
+            <Text type="caption2" color="danger">{withdrawError}</Text>
+          </div>
+        )}
+      </div>
+
+      {withdrawRequest && (
+        <div style={{ marginBottom: 14 }}>
+          <Group header="Latest Withdraw Request">
+            <GroupItem text="Request ID" after={<Text type="body" weight="bold">#{withdrawRequest.id}</Text>} />
+            <GroupItem text="Amount" after={<Text type="body" weight="bold">{withdrawRequest.amount} TON</Text>} />
+            <GroupItem text="Status" after={<Text type="body" color="secondary">{withdrawRequest.status}</Text>} />
+            {withdrawRequest.tx_link && (
+              <GroupItem
+                text="Blockchain TX"
+                after={(
+                  <a
+                    href={withdrawRequest.tx_link}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{
+                      display: 'inline-block',
+                      padding: '4px 10px',
+                      borderRadius: 999,
+                      background: 'rgba(0, 122, 255, 0.12)',
+                      color: '#007aff',
+                      fontWeight: 600,
+                      textDecoration: 'none',
+                    }}
+                  >
+                    Open TX
+                  </a>
+                )}
+              />
+            )}
+          </Group>
+        </div>
+      )}
 
       {/* Payout Wallet */}
       <div className="wallet-payout-card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
           <Text type="caption1" weight="bold">Payout Wallet</Text>
-          {walletSaved && !walletEditing && (
+          {walletSaved && !walletEditing && !walletLocked && (
             <button className="wallet-edit-btn" onClick={() => setWalletEditing(true)}>Edit</button>
           )}
         </div>
+        {walletLocked && (
+          <div style={{ marginBottom: 8 }}>
+            <Text type="caption2" color="tertiary">Wallet is locked until this withdraw request is completed.</Text>
+          </div>
+        )}
         {walletSaved && !walletEditing ? (
           <div className="wallet-address-display">
             <span className="wallet-dot-green" />
@@ -118,13 +243,17 @@ export function Earnings({ connectedWallet }: { connectedWallet: string | null }
               placeholder="Your TON wallet address"
               onChange={(e) => setWalletAddress(e.target.value)}
             />
-            {walletError && <Text type="caption2" color="danger" style={{ marginTop: 4 }}>{walletError}</Text>}
+            {walletError && (
+              <div style={{ marginTop: 4 }}>
+                <Text type="caption2" color="danger">{walletError}</Text>
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
               <button
                 className="action-btn action-btn-approve"
                 style={{ flex: 1 }}
                 onClick={handleSaveWallet}
-                disabled={walletSaving || !walletAddress.trim()}
+                disabled={walletSaving || !walletAddress.trim() || walletLocked}
               >
                 {walletSaving ? 'Saving...' : '💾 Save'}
               </button>
@@ -139,7 +268,7 @@ export function Earnings({ connectedWallet }: { connectedWallet: string | null }
               )}
             </div>
             <Text type="caption2" color="tertiary" className="form-hint">
-              Earnings will be sent to this address after the 30-day hold period.
+              Earnings will be sent to this address after the 3-day hold period.
             </Text>
           </>
         )}
@@ -160,9 +289,9 @@ export function Earnings({ connectedWallet }: { connectedWallet: string | null }
 
       {/* How it works */}
       <Group header="How Payouts Work">
-        <GroupItem text="Your share" after={<Text type="body" weight="bold" color="accent">95%</Text>} />
-        <GroupItem text="Hold period" after={<Text type="body" weight="bold">30 days</Text>} />
-        <GroupItem text="" description="You receive 95% of each ad payment. Earnings are held for 30 days after the deal completes, then transferred to your account." />
+        <GroupItem text="Platform fee" after={<Text type="body" weight="bold">Tiered by amount</Text>} />
+        <GroupItem text="Hold period" after={<Text type="body" weight="bold">3 days</Text>} />
+        <GroupItem text="" description="Fee percent depends on amount tier. Earnings are held for 3 days after the deal completes, then transferred to your account." />
       </Group>
 
       {/* History */}
@@ -179,19 +308,20 @@ export function Earnings({ connectedWallet }: { connectedWallet: string | null }
       ) : (
         history.map((e) => (
           <div key={e.id} style={{ marginBottom: 10 }}>
-            <Group header={
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                <span>@{e.channel_username} · #{e.deal_id}</span>
-                <span className="status-pill" style={{
-                  background: e.status === 'paid' ? 'rgba(52,199,89,0.12)' : 'rgba(0,122,255,0.12)',
-                  color: e.status === 'paid' ? '#34c759' : '#007aff',
-                }}>
-                  {e.status === 'paid' ? 'Paid' : 'Pending'}
-                </span>
-              </div>
-            }>
+            <Group header={`@${e.channel_username} · #${e.deal_id}`}>
+              <GroupItem
+                text="Status"
+                after={(
+                  <span className="status-pill" style={{
+                    background: e.status === 'paid' ? 'rgba(52,199,89,0.12)' : 'rgba(0,122,255,0.12)',
+                    color: e.status === 'paid' ? '#34c759' : '#007aff',
+                  }}>
+                    {e.status === 'paid' ? 'Paid' : 'Pending'}
+                  </span>
+                )}
+              />
               <GroupItem text="Payment" after={<Text type="body" weight="bold">{e.gross_amount} TON</Text>} />
-              <GroupItem text="Fee (5%)" after={<Text type="body" color="secondary">-{e.platform_fee} TON</Text>} />
+              <GroupItem text="Platform Fee" after={<Text type="body" color="secondary">-{e.platform_fee} TON</Text>} />
               <GroupItem text="You earned" after={<Text type="body" weight="bold" color="accent">{e.net_amount} TON</Text>} />
               <GroupItem
                 text={e.status === 'paid' ? 'Paid on' : 'Payout in'}

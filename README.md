@@ -1,6 +1,6 @@
 # Fox Deal — Telegram Ad Marketplace
 
-Fox Deal is a Telegram Mini App marketplace where **channel owners** list their channels for advertising and **advertisers** purchase ad placements using **Telegram Stars**. The platform supports both **time-based** and **cost-per-click (CPC)** pricing models with built-in escrow, automated posting, verification, and earnings tracking.
+Fox Deal is a Telegram Mini App marketplace where **channel owners** list their channels for advertising and **advertisers** purchase ad placements using **TON**. The platform supports both **time-based** and **cost-per-click (CPC)** pricing models with built-in escrow, automated posting, verification, and earnings tracking.
 
 It also supports **Multi-Channel Campaigns**: an advertiser can create one creative and target multiple channels, creating one independent deal per channel under a single campaign dashboard.
 
@@ -180,7 +180,7 @@ fox-deal/
 │   │       ├── channels.ts     # Channel CRUD
 │   │       ├── deals.ts        # Deal creation, approve/reject/cancel
 │   │       ├── campaigns.ts    # Multi-channel campaigns (create/list/detail/pay-all)
-│   │       ├── payments.ts     # Telegram Stars invoice creation
+│   │       ├── payments.ts     # TON payment prep + confirmation
 │   │       ├── earnings.ts     # Owner earnings summary + history
 │   │       └── upload.ts       # Image upload/serving
 │   │
@@ -188,7 +188,8 @@ fox-deal/
 │   │   ├── index.ts            # Bot setup, /start command, payment handlers
 │   │   ├── admin.ts            # Channel admin checks, posting, message verification
 │   │   ├── jobs.ts             # Auto-post, monitoring, CPC completion
-│   │   ├── payments.ts         # Invoice creation, payment processing
+│   │   ├── payments.ts         # Payment processing hooks
+│   │   ├── withdrawAdmin.ts    # Withdraw request admin workflow
 │   │   ├── notifications.ts    # DM notifications to users
 │   │   ├── expiry.ts           # Deal expiry background job
 │   │   └── channelCheck.ts     # Periodic bot admin verification
@@ -243,29 +244,54 @@ created → pending_approval → approved → escrow_held → posted → verifie
 
 1. **Advertiser** creates a deal (chooses time-based or CPC)
 2. **Channel owner** approves or rejects
-3. **Advertiser** pays via Telegram Stars
+3. **Advertiser** pays via TON (deal payment held in escrow)
 4. **Bot** auto-posts the ad to the channel
 5. **Bot** monitors the post:
    - **Time-based:** checks if post stays up for the full duration → completes
    - **CPC:** tracks clicks, deducts from budget → completes when budget exhausted
-6. On completion: owner gets **95%** (rounded down), platform keeps **5%**
-7. Earnings are held for **30 days** before payout
+6. On completion: owner/platform split is calculated by **tiered platform fee**
+7. Earnings are held for **3 days** before payout eligibility
+
+### Tiered Platform Fee (by deal amount in TON)
+
+| Amount | Fee % |
+|--------|-------|
+| `amount == 5` | `15%` |
+| `5 < amount < 10` | `10%` |
+| `10 ≤ amount < 25` | `7%` |
+| `25 ≤ amount < 100` | `5%` |
+| `100 ≤ amount < 300` | `4%` |
+| `amount ≥ 300` | `3%` |
+
+Fee breakdown is stored per earning record and used consistently in earnings totals and withdraw calculations.
+
+### Withdraw Request Flow
+
+1. Owner waits until earnings are eligible (`payout_at <= now`).
+2. Owner submits a withdraw request from Earnings page.
+3. Request is sent to admin chat with **Paid** / **Cancel** actions (with confirm step).
+4. On paid confirmation, admin submits blockchain TX URL.
+5. Request is marked paid, linked earnings move to paid, owner gets notification with wallet + TX link.
+
+Rules:
+- Wallet is locked while request status is `pending` or `awaiting_tx_link`.
+- Minimum withdraw amount is controlled by `MIN_WITHDRAW_TON` (default `5`).
 
 ---
 
 ## Pricing Models
 
 ### Time-based
-- Channel owner sets a **price** (Stars) and **duration** (hours)
+- Channel owner sets a **price** (TON) and **duration** (hours)
 - Advertiser pays the full price upfront
 - Ad stays posted for the duration; payment released after verification
 
 ### Cost-per-Click (CPC)
-- Channel owner sets a **CPC price** (Stars per click, supports decimals e.g. 0.5)
-- Advertiser sets a **total budget** (integer Stars) and must provide a link
+- Channel owner sets a **CPC price** (TON per click, supports decimals e.g. 0.5)
+- Advertiser sets a **total budget** (TON) and must provide a link
 - Each click on the inline button deducts the CPC price from the budget
 - When budget is exhausted, the post is automatically removed
-- Owner receives the spent amount (floored to integer); unspent budget is refunded
+- Owner receives spent amount minus tiered fee; unspent budget is refunded
 
 ---
 
@@ -290,6 +316,11 @@ created → pending_approval → approved → escrow_held → posted → verifie
 | `POST_DURATION_MINUTES` | No | `2` | How long time-based ads stay posted |
 | `PAYMENT_TIMEOUT_HOURS` | No | `2` | Time for advertiser to pay after approval |
 | `APPROVAL_TIMEOUT_HOURS` | No | `24` | Time for owner to approve/reject |
+| `WITHDRAW_ADMIN_CHAT_ID` | No | `88766614` | Admin Telegram chat/user id for withdraw approvals |
+| `MIN_WITHDRAW_TON` | No | `5` | Minimum amount required to create withdraw request |
+| `TON_NETWORK` | No | `testnet` | TON network (`testnet` or `mainnet`) |
+| `TON_WALLET_ADDRESS` | No | — | Platform TON wallet that receives advertiser payments |
+| `TON_API_KEY` | No | — | TonCenter API key (used when payment verification is enabled) |
 
 ---
 
@@ -337,6 +368,7 @@ docker ps --filter "name=market"
 | **"Bot can't initiate conversation"** | User must send `/start` to the bot first |
 | **"Invalid input" on deal creation** | Check that image URLs are relative paths, not full URLs |
 | **Earnings show 0** | Earnings only appear after a deal **completes** (not just paid) |
+| **Withdraw button disabled** | Check `MIN_WITHDRAW_TON`, payout hold window, and whether an active withdraw request already exists |
 | **Mini App blank in Telegram** | Ensure `MINI_APP_URL` is HTTPS and `allowedHosts` includes your domain in `vite.config.ts` |
 
 ---
@@ -346,7 +378,7 @@ docker ps --filter "name=market"
 - **Backend:** Node.js, Express, TypeScript, grammY (Telegram bot)
 - **Frontend:** React, Vite, TypeScript
 - **Database:** PostgreSQL
-- **Payments:** TON
+- **Payments:** TON (escrow flow, tiered platform fee, withdraw requests)
 - **Deployment:** Docker Compose
 - **Validation:** Zod (env vars + API schemas)
 

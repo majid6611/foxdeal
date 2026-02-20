@@ -11,7 +11,10 @@ import type {
   DealStatus,
   TransactionType,
   UserRole,
+  WithdrawRequest,
+  WithdrawRequestStatus,
 } from '../shared/types.js';
+import { calculateFeeBreakdown, getPlatformFeePercent } from '../shared/fees.js';
 
 // ── Users ────────────────────────────────────────────────────────────
 
@@ -724,23 +727,19 @@ export async function getTransactionsByDeal(dealId: number): Promise<Transaction
 
 // ── Owner Earnings ──────────────────────────────────────────────────
 
-const PLATFORM_FEE_PERCENT = 5;
-
 export async function recordEarning(
   ownerId: number,
   dealId: number,
   channelId: number,
   grossAmount: number,
 ): Promise<OwnerEarning> {
-  // Owner gets 95% rounded down; platform keeps the rest (5% rounded up)
-  const netAmount = Math.floor(grossAmount * (100 - PLATFORM_FEE_PERCENT) / 100);
-  const platformFee = grossAmount - netAmount;
+  const split = calculateFeeBreakdown(grossAmount);
 
   const { rows } = await pool.query<OwnerEarning>(
     `INSERT INTO owner_earnings (owner_id, deal_id, channel_id, gross_amount, platform_fee, net_amount)
      VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING *`,
-    [ownerId, dealId, channelId, grossAmount, platformFee, netAmount],
+    [ownerId, dealId, channelId, split.gross_amount, split.fee_amount, split.net_amount],
   );
   return rows[0];
 }
@@ -750,8 +749,16 @@ export interface EarningsSummary {
   total_pending: number;
   total_paid: number;
   platform_fees: number;
+  available_to_withdraw: number;
   next_payout_at: Date | null;
   next_payout_amount: number;
+}
+
+export interface WithdrawPreview {
+  gross_amount: number;
+  fee_percent: number;
+  fee_amount: number;
+  net_amount: number;
 }
 
 export async function getEarningsSummary(ownerId: number): Promise<EarningsSummary> {
@@ -760,6 +767,7 @@ export async function getEarningsSummary(ownerId: number): Promise<EarningsSumma
     total_pending: string;
     total_paid: string;
     platform_fees: string;
+    available_to_withdraw: string;
     next_payout_at: Date | null;
     next_payout_amount: string;
   }>(
@@ -768,6 +776,7 @@ export async function getEarningsSummary(ownerId: number): Promise<EarningsSumma
        COALESCE(SUM(CASE WHEN status = 'pending' THEN net_amount END), 0) AS total_pending,
        COALESCE(SUM(CASE WHEN status = 'paid' THEN net_amount END), 0) AS total_paid,
        COALESCE(SUM(platform_fee), 0) AS platform_fees,
+       COALESCE(SUM(CASE WHEN status = 'pending' AND payout_at <= NOW() AND withdraw_request_id IS NULL THEN net_amount END), 0) AS available_to_withdraw,
        MIN(CASE WHEN status = 'pending' THEN payout_at END) AS next_payout_at,
        COALESCE(SUM(CASE WHEN status = 'pending' AND payout_at <= (SELECT MIN(payout_at) FROM owner_earnings WHERE owner_id = $1 AND status = 'pending') + INTERVAL '1 day' THEN net_amount END), 0) AS next_payout_amount
      FROM owner_earnings
@@ -781,6 +790,7 @@ export async function getEarningsSummary(ownerId: number): Promise<EarningsSumma
     total_pending: Number(r.total_pending),
     total_paid: Number(r.total_paid),
     platform_fees: Number(r.platform_fees),
+    available_to_withdraw: Number(r.available_to_withdraw),
     next_payout_at: r.next_payout_at,
     next_payout_amount: Number(r.next_payout_amount),
   };
@@ -797,6 +807,255 @@ export async function getEarningsHistory(ownerId: number): Promise<(OwnerEarning
     [ownerId],
   );
   return rows;
+}
+
+export async function getWithdrawPreview(ownerId: number): Promise<WithdrawPreview> {
+  const { rows } = await pool.query<{
+    gross_amount: string;
+    fee_amount: string;
+    net_amount: string;
+  }>(
+    `SELECT
+       COALESCE(SUM(gross_amount), 0) AS gross_amount,
+       COALESCE(SUM(platform_fee), 0) AS fee_amount,
+       COALESCE(SUM(net_amount), 0) AS net_amount
+     FROM owner_earnings
+     WHERE owner_id = $1
+       AND status = 'pending'
+       AND payout_at <= NOW()
+       AND withdraw_request_id IS NULL`,
+    [ownerId],
+  );
+
+  const gross = Number(rows[0].gross_amount);
+  const feeAmount = Number(rows[0].fee_amount);
+  const net = Number(rows[0].net_amount);
+  const feePercent = gross > 0
+    ? Number(((feeAmount / gross) * 100).toFixed(2))
+    : getPlatformFeePercent(0);
+
+  return {
+    gross_amount: gross,
+    fee_percent: feePercent,
+    fee_amount: feeAmount,
+    net_amount: net,
+  };
+}
+
+export async function getLatestWithdrawRequest(ownerId: number): Promise<WithdrawRequest | null> {
+  const { rows } = await pool.query<WithdrawRequest>(
+    `SELECT *
+     FROM withdraw_requests
+     WHERE owner_id = $1
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [ownerId],
+  );
+  return rows[0] ?? null;
+}
+
+export async function getActiveWithdrawRequest(ownerId: number): Promise<WithdrawRequest | null> {
+  const { rows } = await pool.query<WithdrawRequest>(
+    `SELECT *
+     FROM withdraw_requests
+     WHERE owner_id = $1
+       AND status IN ('pending', 'awaiting_tx_link')
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [ownerId],
+  );
+  return rows[0] ?? null;
+}
+
+export async function getWithdrawRequestById(id: number): Promise<WithdrawRequest | null> {
+  const { rows } = await pool.query<WithdrawRequest>(
+    'SELECT * FROM withdraw_requests WHERE id = $1',
+    [id],
+  );
+  return rows[0] ?? null;
+}
+
+export async function getLatestAwaitingWithdrawRequestByAdminChat(
+  adminChatId: number,
+): Promise<WithdrawRequest | null> {
+  const { rows } = await pool.query<WithdrawRequest>(
+    `SELECT *
+     FROM withdraw_requests
+     WHERE admin_chat_id = $1
+       AND status = 'awaiting_tx_link'
+     ORDER BY updated_at DESC
+     LIMIT 1`,
+    [adminChatId],
+  );
+  return rows[0] ?? null;
+}
+
+export async function createWithdrawRequest(
+  ownerId: number,
+  walletAddress: string,
+  adminChatId: number,
+  minWithdrawTon: number,
+): Promise<WithdrawRequest> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const active = await client.query<{ id: number }>(
+      `SELECT id
+       FROM withdraw_requests
+       WHERE owner_id = $1
+         AND status IN ('pending', 'awaiting_tx_link')
+       LIMIT 1
+       FOR UPDATE`,
+      [ownerId],
+    );
+    if (active.rows.length > 0) {
+      throw new Error('You already have an active withdraw request');
+    }
+
+    const eligible = await client.query<{ id: number; net_amount: number }>(
+      `SELECT id, net_amount
+       FROM owner_earnings
+       WHERE owner_id = $1
+         AND status = 'pending'
+         AND payout_at <= NOW()
+         AND withdraw_request_id IS NULL
+       ORDER BY id
+       FOR UPDATE`,
+      [ownerId],
+    );
+    if (eligible.rows.length === 0) {
+      throw new Error('No withdrawable balance yet');
+    }
+
+    const earningIds = eligible.rows.map((row) => row.id);
+    const amount = eligible.rows.reduce((sum, row) => sum + Number(row.net_amount), 0);
+    if (amount < minWithdrawTon) {
+      throw new Error(`Minimum withdraw amount is ${minWithdrawTon} TON`);
+    }
+
+    const inserted = await client.query<WithdrawRequest>(
+      `INSERT INTO withdraw_requests (owner_id, wallet_address, amount, admin_chat_id)
+       VALUES ($1, $2, $3, $4)
+       RETURNING *`,
+      [ownerId, walletAddress, amount, adminChatId],
+    );
+    const request = inserted.rows[0];
+
+    await client.query(
+      `UPDATE owner_earnings
+       SET withdraw_request_id = $1
+       WHERE id = ANY($2::int[])`,
+      [request.id, earningIds],
+    );
+
+    await client.query('COMMIT');
+    return request;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export async function setWithdrawRequestAdminMessage(
+  requestId: number,
+  adminMessageId: number,
+): Promise<void> {
+  await pool.query(
+    `UPDATE withdraw_requests
+     SET admin_message_id = $2, updated_at = NOW()
+     WHERE id = $1`,
+    [requestId, adminMessageId],
+  );
+}
+
+export async function markWithdrawRequestAwaitingTxLink(requestId: number): Promise<WithdrawRequest | null> {
+  const { rows } = await pool.query<WithdrawRequest>(
+    `UPDATE withdraw_requests
+     SET status = 'awaiting_tx_link', reviewed_at = NOW(), updated_at = NOW()
+     WHERE id = $1 AND status = 'pending'
+     RETURNING *`,
+    [requestId],
+  );
+  return rows[0] ?? null;
+}
+
+export async function cancelWithdrawRequest(requestId: number): Promise<WithdrawRequest | null> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const updated = await client.query<WithdrawRequest>(
+      `UPDATE withdraw_requests
+       SET status = 'cancelled', reviewed_at = NOW(), updated_at = NOW()
+       WHERE id = $1 AND status IN ('pending', 'awaiting_tx_link')
+       RETURNING *`,
+      [requestId],
+    );
+    const request = updated.rows[0];
+    if (!request) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+
+    await client.query(
+      `UPDATE owner_earnings
+       SET withdraw_request_id = NULL
+       WHERE withdraw_request_id = $1
+         AND status = 'pending'`,
+      [requestId],
+    );
+
+    await client.query('COMMIT');
+    return request;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export async function markWithdrawRequestPaid(
+  requestId: number,
+  txLink: string,
+): Promise<WithdrawRequest | null> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const updated = await client.query<WithdrawRequest>(
+      `UPDATE withdraw_requests
+       SET status = 'paid', tx_link = $2, reviewed_at = NOW(), updated_at = NOW()
+       WHERE id = $1 AND status = 'awaiting_tx_link'
+       RETURNING *`,
+      [requestId, txLink],
+    );
+    const request = updated.rows[0];
+    if (!request) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+
+    await client.query(
+      `UPDATE owner_earnings
+       SET status = 'paid',
+           paid_at = NOW()
+       WHERE withdraw_request_id = $1
+         AND status = 'pending'`,
+      [requestId],
+    );
+
+    await client.query('COMMIT');
+    return request;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 // ── Unique Click Tracking ───────────────────────────────────────────

@@ -231,8 +231,26 @@ export interface EarningsSummary {
   total_pending: number;
   total_paid: number;
   platform_fees: number;
+  available_to_withdraw: number;
   next_payout_at: string | null;
   next_payout_amount: number;
+}
+
+export interface WithdrawRequest {
+  id: number;
+  amount: number;
+  wallet_address: string;
+  status: 'pending' | 'awaiting_tx_link' | 'paid' | 'cancelled';
+  tx_link: string | null;
+  created_at: string;
+  reviewed_at: string | null;
+}
+
+export interface WithdrawPreview {
+  gross_amount: number;
+  fee_percent: number;
+  fee_amount: number;
+  net_amount: number;
 }
 
 export interface EarningRecord {
@@ -250,7 +268,14 @@ export interface EarningRecord {
 }
 
 export const getEarnings = () =>
-  request<{ summary: EarningsSummary; history: EarningRecord[]; walletAddress: string | null }>('/earnings');
+  request<{
+    summary: EarningsSummary;
+    history: EarningRecord[];
+    withdrawRequest: WithdrawRequest | null;
+    walletAddress: string | null;
+    minWithdrawTon: number;
+    withdrawPreview: WithdrawPreview;
+  }>('/earnings');
 
 export const getWallet = () =>
   request<{ walletAddress: string | null }>('/earnings/wallet');
@@ -259,6 +284,11 @@ export const saveWallet = (walletAddress: string) =>
   request<{ walletAddress: string }>('/earnings/wallet', {
     method: 'POST',
     body: JSON.stringify({ walletAddress }),
+  });
+
+export const createWithdrawRequest = () =>
+  request<{ success: boolean; request: WithdrawRequest }>('/earnings/withdraw-request', {
+    method: 'POST',
   });
 
 // Upload

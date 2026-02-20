@@ -9,6 +9,8 @@ const envSchema = z.object({
   PAYMENT_TIMEOUT_HOURS: z.coerce.number().positive().default(2),
   APPROVAL_TIMEOUT_HOURS: z.coerce.number().positive().default(24),
   ADMIN_CHANNEL_ID: z.coerce.number().int(),
+  WITHDRAW_ADMIN_CHAT_ID: z.coerce.number().int().default(88766614),
+  MIN_WITHDRAW_TON: z.coerce.number().positive().default(5),
   LIVENESS_CHECK_CHANNEL_ID: z.coerce.number().int().optional(),
   TON_API_KEY: z.string().min(1).default(''),
   TON_NETWORK: z.enum(['mainnet', 'testnet']).default('testnet'),

@@ -87,6 +87,7 @@ export interface Transaction {
 }
 
 export type EarningStatus = 'pending' | 'paid';
+export type WithdrawRequestStatus = 'pending' | 'awaiting_tx_link' | 'paid' | 'cancelled';
 
 export type CampaignStatus = 'active' | 'completed' | 'cancelled';
 
@@ -122,9 +123,24 @@ export interface OwnerEarning {
   platform_fee: number;
   net_amount: number;
   status: EarningStatus;
+  withdraw_request_id: number | null;
   earned_at: Date;
   payout_at: Date;
   paid_at: Date | null;
+}
+
+export interface WithdrawRequest {
+  id: number;
+  owner_id: number;
+  wallet_address: string;
+  amount: number;
+  status: WithdrawRequestStatus;
+  tx_link: string | null;
+  admin_chat_id: number;
+  admin_message_id: number | null;
+  reviewed_at: Date | null;
+  created_at: Date;
+  updated_at: Date;
 }
 
 export interface ChannelRating {

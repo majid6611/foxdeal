@@ -11,10 +11,14 @@ interface TelegramWebApp {
   initData: string;
   initDataUnsafe: {
     user?: TelegramWebAppUser;
+    start_param?: string;
   };
+  colorScheme?: 'light' | 'dark';
   ready: () => void;
   close: () => void;
   expand: () => void;
+  openLink?: (url: string) => void;
+  openTelegramLink?: (url: string) => void;
   openInvoice: (url: string, callback?: (status: 'paid' | 'cancelled' | 'failed' | 'pending') => void) => void;
 }
 

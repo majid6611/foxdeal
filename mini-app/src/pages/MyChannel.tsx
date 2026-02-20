@@ -175,14 +175,11 @@ export function MyChannel({ onBack }: { onBack: () => void }) {
           const st = approvalColor(ch);
           return (
             <div key={ch.id} style={{ marginBottom: 12 }}>
-              <Group header={
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                  <span>@{ch.username}</span>
-                  <span className="status-pill" style={{ background: st.bg, color: st.color }}>
-                    {st.label}
-                  </span>
-                </div>
-              } footer={ch.category}>
+              <Group header={`@${ch.username}`} footer={ch.category}>
+                <GroupItem
+                  text="Status"
+                  after={<span className="status-pill" style={{ background: st.bg, color: st.color }}>{st.label}</span>}
+                />
                 <GroupItem text="Subscribers" after={<Text type="body" weight="bold">{ch.subscribers.toLocaleString()}</Text>} />
                 <GroupItem text="Rating" after={<Text type="body" weight="bold">⭐ {formatChannelRating(ch)}</Text>} />
                 <GroupItem text="Completed Ads" after={<Text type="body" weight="bold">{formatCompletedAds(ch)}</Text>} />
@@ -200,22 +197,14 @@ export function MyChannel({ onBack }: { onBack: () => void }) {
                 )}
                 {ch.approval_status === 'approved' && ch.is_active && (
                   <GroupItem
-                    text={
-                      <span className="deactivate-text">
-                        {actionId === ch.id ? 'Deactivating...' : '⏸ Deactivate Channel'}
-                      </span>
-                    }
+                    text={actionId === ch.id ? 'Deactivating...' : '⏸ Deactivate Channel'}
                     onClick={() => handleDeactivate(ch.id)}
                     disabled={actionId === ch.id}
                   />
                 )}
                 {ch.approval_status === 'approved' && !ch.is_active && (
                   <GroupItem
-                    text={
-                      <span className="activate-text">
-                        {actionId === ch.id ? 'Activating...' : '▶ Activate Channel'}
-                      </span>
-                    }
+                    text={actionId === ch.id ? 'Activating...' : '▶ Activate Channel'}
                     onClick={() => handleActivate(ch.id)}
                     disabled={actionId === ch.id}
                   />

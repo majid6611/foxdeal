@@ -59,6 +59,10 @@ export async function startBot(): Promise<void> {
   const { registerAdminChannelHandlers } = await import('./adminChannel.js');
   registerAdminChannelHandlers();
 
+  // Register withdraw-request admin workflow handlers
+  const { registerWithdrawAdminHandlers } = await import('./withdrawAdmin.js');
+  registerWithdrawAdminHandlers();
+
   // Resume any in-progress posted deals
   const { resumePostedDeals } = await import('./jobs.js');
   await resumePostedDeals();
