@@ -4,10 +4,26 @@ import { transitionDeal, refundEscrow } from '../escrow/transitions.js';
 import { getDealById, getChannelById } from '../db/queries.js';
 import { env } from '../config/env.js';
 import { pool } from '../db/index.js';
+import { notifyAdvertiserRatingRequest } from './notifications.js';
 import type { Deal } from '../shared/types.js';
 
 // Track active monitoring intervals so we can clean up
 const activeMonitors = new Map<number, NodeJS.Timeout>();
+
+async function tryRemovePostedMessage(
+  dealId: number,
+  channelTelegramId: string,
+  postedMessageId: string | null,
+  context: 'time' | 'cpc',
+): Promise<void> {
+  if (!postedMessageId) return;
+  try {
+    await bot.api.deleteMessage(channelTelegramId, Number(postedMessageId));
+    console.log(`[jobs] ${context.toUpperCase()} deal ${dealId}: removed post from channel`);
+  } catch (err) {
+    console.warn(`[jobs] ${context.toUpperCase()} deal ${dealId}: could not remove post:`, (err as Error).message);
+  }
+}
 
 /**
  * Auto-post: When a deal reaches escrow_held, immediately post to channel.
@@ -76,7 +92,10 @@ export async function autoPostDeal(dealId: number): Promise<void> {
     startCpcMonitoring(dealId);
   } else {
     // Time-based deals: monitor for duration + post deletion
-    startMonitoring(dealId, env.POST_DURATION_MINUTES);
+    const durationMinutes = deal.duration_hours > 0
+      ? deal.duration_hours * 60
+      : env.POST_DURATION_MINUTES;
+    startMonitoring(dealId, durationMinutes);
   }
 }
 
@@ -141,13 +160,15 @@ function startMonitoring(dealId: number, durationMinutes: number): void {
           verified_at: new Date(),
         });
         const { releaseEscrow } = await import('../escrow/transitions.js');
-        await releaseEscrow(dealId, deal.price);
+        const completedDeal = await releaseEscrow(dealId, deal.price);
+        await tryRemovePostedMessage(dealId, channel.telegram_channel_id, deal.posted_message_id, 'time');
         console.log(`[jobs] Deal ${dealId} verified and completed after ${durationMinutes} min`);
 
         await notifyUser(deal.advertiser_id,
           `Your ad in @${channel.username} stayed live for the full ${durationMinutes} min. Payment of ${deal.price} TON released!`);
         await notifyUser(channel.owner_id,
           `Ad verified in @${channel.username} (deal #${dealId}). ${deal.price} TON have been released to you!`);
+        await notifyAdvertiserRatingRequest(completedDeal);
       } else {
         const remaining = Math.round((totalMs - elapsed) / 1000);
         console.log(`[jobs] Deal ${dealId} check OK — ${remaining}s remaining`);
@@ -240,16 +261,8 @@ export async function completeCpcDeal(dealId: number): Promise<void> {
     const channel = await getChannelById(deal.channel_id);
 
     // Remove the post from the channel
-    if (channel && deal.posted_message_id) {
-      try {
-        await bot.api.deleteMessage(
-          channel.telegram_channel_id,
-          Number(deal.posted_message_id),
-        );
-        console.log(`[jobs] CPC deal ${dealId}: removed post from channel`);
-      } catch (err) {
-        console.warn(`[jobs] CPC deal ${dealId}: could not remove post:`, (err as Error).message);
-      }
+    if (channel) {
+      await tryRemovePostedMessage(dealId, channel.telegram_channel_id, deal.posted_message_id, 'cpc');
     }
 
     // Verify and complete — release the spent amount
@@ -263,7 +276,7 @@ export async function completeCpcDeal(dealId: number): Promise<void> {
 
     // Release the spent amount to the owner
     const { releaseEscrow } = await import('../escrow/transitions.js');
-    await releaseEscrow(dealId, spentAmount);
+    const completedDeal = await releaseEscrow(dealId, spentAmount);
 
     // If there's unspent budget, refund it
     if (remainingBudget > 0) {
@@ -282,6 +295,7 @@ export async function completeCpcDeal(dealId: number): Promise<void> {
       await notifyUser(channel.owner_id,
         `CPC ad in ${channelName} (deal #${dealId}) completed. ${spentAmount} TON earned from ${deal.click_count + 1} clicks!`);
     }
+    await notifyAdvertiserRatingRequest(completedDeal);
   } catch (err) {
     console.error(`[jobs] completeCpcDeal error for deal ${dealId}:`, (err as Error).message);
   }
@@ -344,7 +358,10 @@ export async function resumePostedDeals(): Promise<void> {
 
     // Time-based deal
     const elapsed = Date.now() - new Date(deal.posted_at).getTime();
-    const totalMs = env.POST_DURATION_MINUTES * 60 * 1000;
+    const durationMinutes = deal.duration_hours > 0
+      ? deal.duration_hours * 60
+      : env.POST_DURATION_MINUTES;
+    const totalMs = durationMinutes * 60 * 1000;
 
     if (elapsed >= totalMs) {
       console.log(`[jobs] Deal ${deal.id} duration already passed, verifying now`);
@@ -360,8 +377,15 @@ export async function resumePostedDeals(): Promise<void> {
         if (alive) {
           await transitionDeal(deal.id, 'posted', 'verified', { verified_at: new Date() });
           const { releaseEscrow } = await import('../escrow/transitions.js');
-          await releaseEscrow(deal.id, deal.price);
+          const completedDeal = await releaseEscrow(deal.id, deal.price);
+          await tryRemovePostedMessage(
+            deal.id,
+            channel.telegram_channel_id,
+            deal.posted_message_id,
+            'time',
+          );
           console.log(`[jobs] Deal ${deal.id} verified on resume`);
+          await notifyAdvertiserRatingRequest(completedDeal);
         } else {
           await transitionDeal(deal.id, 'posted', 'disputed');
           await refundEscrow(deal.id, 'disputed', deal.price);

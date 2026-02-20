@@ -1,17 +1,64 @@
 import { bot } from './index.js';
 import { env } from '../config/env.js';
+import { GrammyError, HttpError } from 'grammy';
+
+export interface BotAdminCheckResult {
+  isAdmin: boolean;
+  isDefinitive: boolean;
+  reason: string;
+}
 
 /**
  * Check if the bot is an admin of a given channel.
  * Returns true if the bot has admin rights, false otherwise.
  */
 export async function isBotAdminOfChannel(channelId: string | number): Promise<boolean> {
+  const result = await checkBotAdminStatus(channelId);
+  return result.isAdmin;
+}
+
+/**
+ * Check bot admin status with error classification.
+ * `isDefinitive=false` means we could not reliably determine status due to transient/network errors.
+ */
+export async function checkBotAdminStatus(channelId: string | number): Promise<BotAdminCheckResult> {
   try {
     const botInfo = await bot.api.getMe();
     const member = await bot.api.getChatMember(channelId, botInfo.id);
-    return member.status === 'administrator' || member.status === 'creator';
-  } catch {
-    return false;
+    const isAdmin = member.status === 'administrator' || member.status === 'creator';
+    return {
+      isAdmin,
+      isDefinitive: true,
+      reason: `chat member status=${member.status}`,
+    };
+  } catch (err) {
+    if (err instanceof HttpError) {
+      return {
+        isAdmin: false,
+        isDefinitive: false,
+        reason: `network/http error: ${err.message}`,
+      };
+    }
+
+    if (err instanceof GrammyError) {
+      const desc = err.description.toLowerCase();
+      const transient = err.error_code === 429
+        || err.error_code >= 500
+        || desc.includes('timeout')
+        || desc.includes('temporarily')
+        || desc.includes('try again');
+      return {
+        isAdmin: false,
+        isDefinitive: !transient,
+        reason: `telegram error ${err.error_code}: ${err.description}`,
+      };
+    }
+
+    return {
+      isAdmin: false,
+      isDefinitive: false,
+      reason: `unknown error: ${(err as Error)?.message ?? String(err)}`,
+    };
   }
 }
 
@@ -52,17 +99,21 @@ export async function getChannelInfo(channelId: string | number) {
 }
 
 /**
- * Fetch average post views for a public channel by scraping t.me/s/<username>.
- * Returns null when unavailable (private channel, no recent posts, or parse failure).
+ * Fetch public channel stats by scraping t.me/s/<username>.
+ * Returns null-ish stats when unavailable (private channel, no recent posts, or parse failure).
  */
-export async function getChannelAverageViews(username: string, sampleSize = 10): Promise<number | null> {
+export async function getChannelPublicStats(
+  username: string,
+  sampleSize = 10,
+): Promise<{ avgPostViews: number | null; mostUsedLanguage: string | null }> {
   const clean = username.replace(/^@/, '').trim();
-  if (!clean) return null;
+  if (!clean) {
+    return { avgPostViews: null, mostUsedLanguage: null };
+  }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 5000);
   try {
-
     const resp = await fetch(`https://t.me/s/${clean}`, {
       signal: controller.signal,
       headers: {
@@ -70,26 +121,62 @@ export async function getChannelAverageViews(username: string, sampleSize = 10):
         'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
       },
     });
-    if (!resp.ok) return null;
+    if (!resp.ok) {
+      return { avgPostViews: null, mostUsedLanguage: null };
+    }
     const html = await resp.text();
 
-    // t.me/s markup exposes post views in spans like:
-    // <span class="tgme_widget_message_views">1.2K</span>
-    const matches = [...html.matchAll(/tgme_widget_message_views[^>]*>([^<]+)</g)]
+    const viewMatches = [...html.matchAll(/tgme_widget_message_views[^>]*>([^<]+)</g)]
       .map((m) => m[1]?.trim() ?? '')
       .map(parseViewsText)
       .filter((v): v is number => v !== null);
 
-    if (matches.length === 0) return null;
+    const viewSlice = viewMatches.slice(0, sampleSize);
+    const avgPostViews = viewSlice.length > 0
+      ? Math.round(viewSlice.reduce((sum, v) => sum + v, 0) / viewSlice.length)
+      : null;
 
-    const slice = matches.slice(0, sampleSize);
-    const avg = slice.reduce((sum, v) => sum + v, 0) / slice.length;
-    return Math.round(avg);
+    // Extract recent post message text and detect dominant language.
+    const textMatches = [...html.matchAll(/tgme_widget_message_text[^>]*>([\s\S]*?)<\/div>/g)]
+      .map((m) => stripHtml(m[1] ?? ''))
+      .map((t) => t.trim())
+      .filter(Boolean)
+      .slice(0, sampleSize);
+
+    const languageCounts = new Map<string, number>();
+    for (const text of textMatches) {
+      const lang = detectLanguage(text);
+      if (!lang) continue;
+      languageCounts.set(lang, (languageCounts.get(lang) ?? 0) + 1);
+    }
+
+    const classifiedPosts = [...languageCounts.values()].reduce((sum, v) => sum + v, 0);
+    const rankedLanguages = [...languageCounts.entries()].sort((a, b) => b[1] - a[1]);
+    const top = rankedLanguages[0];
+    const second = rankedLanguages[1];
+
+    // Save only when language signal is strong enough.
+    const mostUsedLanguage = (
+      top
+      && classifiedPosts >= 3
+      && top[1] >= Math.ceil(classifiedPosts * 0.5)
+      && (!second || top[1] > second[1])
+    )
+      ? top[0]
+      : null;
+
+    return { avgPostViews, mostUsedLanguage };
   } catch {
-    return null;
+    return { avgPostViews: null, mostUsedLanguage: null };
   } finally {
     clearTimeout(timeout);
   }
+}
+
+// Backwards-compatible helper for existing callers.
+export async function getChannelAverageViews(username: string, sampleSize = 10): Promise<number | null> {
+  const stats = await getChannelPublicStats(username, sampleSize);
+  return stats.avgPostViews;
 }
 
 function parseViewsText(raw: string): number | null {
@@ -106,6 +193,77 @@ function parseViewsText(raw: string): number | null {
   if (suffix === 'K') return Math.round(value * 1_000);
   if (suffix === 'M') return Math.round(value * 1_000_000);
   return Math.round(value);
+}
+
+function stripHtml(raw: string): string {
+  return decodeHtmlEntities(raw.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
+}
+
+function decodeHtmlEntities(raw: string): string {
+  return raw
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&#(\d+);/g, (_m, num) => String.fromCharCode(Number(num)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_m, hex) => String.fromCharCode(parseInt(hex, 16)));
+}
+
+function detectLanguage(text: string): string | null {
+  const sample = text.trim();
+  if (!sample) return null;
+
+  // Script-based detection for non-Latin alphabets.
+  if (countMatches(sample, /[\u4E00-\u9FFF]/g) >= 4) return 'zh';
+  if (countMatches(sample, /[\u3040-\u30FF]/g) >= 4) return 'ja';
+  if (countMatches(sample, /[\uAC00-\uD7AF]/g) >= 4) return 'ko';
+  if (countMatches(sample, /[\u0400-\u04FF]/g) >= 4) return 'ru';
+  if (countMatches(sample, /[\u0600-\u06FF]/g) >= 4) return 'ar';
+  if (countMatches(sample, /[\u0590-\u05FF]/g) >= 4) return 'he';
+  if (countMatches(sample, /[\u0900-\u097F]/g) >= 4) return 'hi';
+  if (countMatches(sample, /[\u0E00-\u0E7F]/g) >= 4) return 'th';
+
+  // Light-weight Latin-language detection from common stopwords.
+  const normalized = sample.toLowerCase();
+  const words = normalized.split(/[^a-z]+/).filter(Boolean);
+  if (words.length === 0) return null;
+
+  const stopwords: Record<string, string[]> = {
+    en: ['the', 'and', 'you', 'for', 'with', 'this', 'that', 'from'],
+    es: ['que', 'los', 'las', 'por', 'para', 'con', 'una', 'del'],
+    pt: ['que', 'para', 'com', 'uma', 'nao', 'dos', 'das', 'por'],
+    fr: ['les', 'des', 'pour', 'avec', 'une', 'dans', 'est', 'pas'],
+    de: ['und', 'der', 'die', 'das', 'mit', 'fur', 'ist', 'nicht'],
+    tr: ['ve', 'bir', 'icin', 'ile', 'bu', 'cok', 'daha', 'gibi'],
+    id: ['dan', 'yang', 'untuk', 'dengan', 'ini', 'itu', 'dari', 'pada'],
+  };
+
+  let bestLang: string | null = null;
+  let bestScore = 0;
+  let secondBestScore = 0;
+  for (const [lang, commonWords] of Object.entries(stopwords)) {
+    let score = 0;
+    for (const word of words) {
+      if (commonWords.includes(word)) score++;
+    }
+    if (score > bestScore) {
+      secondBestScore = bestScore;
+      bestScore = score;
+      bestLang = lang;
+    } else if (score > secondBestScore) {
+      secondBestScore = score;
+    }
+  }
+
+  // Require a minimum margin and enough evidence before classifying Latin text.
+  if (!bestLang) return null;
+  if (bestScore < 2) return null;
+  if (bestScore <= secondBestScore) return null;
+  return bestLang;
+}
+
+function countMatches(text: string, regex: RegExp): number {
+  return text.match(regex)?.length ?? 0;
 }
 
 /**
@@ -156,21 +314,23 @@ function resolveImageUrl(url: string): string {
 
 /**
  * Check if a message still exists in a channel.
- * Uses forwardMessage to the channel itself — if message is deleted, it throws.
- * We forward to the same channel and then delete the forwarded copy.
+ * Uses copyMessage into a dedicated check channel — if source message is deleted, it throws.
+ * This avoids creating any visible duplicate posts in the original channel.
  */
 export async function isMessageAlive(
   channelId: string | number,
   messageId: number,
 ): Promise<boolean> {
   try {
-    // Try to copy the message to the same channel (silent) — fails if original is deleted
-    const copied = await bot.api.copyMessage(channelId, channelId, messageId, {
+    const checkChannelId = env.LIVENESS_CHECK_CHANNEL_ID ?? env.ADMIN_CHANNEL_ID;
+
+    // Copy into a dedicated check channel for a non-invasive liveness check.
+    const copied = await bot.api.copyMessage(checkChannelId, channelId, messageId, {
       disable_notification: true,
     });
-    // Delete the copy immediately so it doesn't clutter the channel
+    // Delete the copy immediately so check channel stays clean.
     try {
-      await bot.api.deleteMessage(channelId, copied.message_id);
+      await bot.api.deleteMessage(checkChannelId, copied.message_id);
     } catch {
       // Ignore delete errors
     }

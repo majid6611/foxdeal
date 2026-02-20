@@ -125,6 +125,40 @@ export async function notifyAdvertiserCompleted(deal: Deal): Promise<void> {
 }
 
 /**
+ * Ask advertiser to rate a completed deal (1-5 stars).
+ */
+export async function notifyAdvertiserRatingRequest(deal: Deal): Promise<void> {
+  const channel = await getChannelById(deal.channel_id);
+  if (!channel) return;
+
+  const telegramId = await getTelegramId(deal.advertiser_id);
+  if (!telegramId) return;
+
+  try {
+    await bot.api.sendMessage(
+      telegramId,
+      `<b>Rate your experience</b>\n\n` +
+      `How was your ad campaign with @${escapeHtml(channel.username)}?\n` +
+      `Please select a score from 1 to 5 stars.`,
+      {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [[
+            { text: '⭐ 1', callback_data: `rate:${deal.id}:1` },
+            { text: '⭐ 2', callback_data: `rate:${deal.id}:2` },
+            { text: '⭐ 3', callback_data: `rate:${deal.id}:3` },
+            { text: '⭐ 4', callback_data: `rate:${deal.id}:4` },
+            { text: '⭐ 5', callback_data: `rate:${deal.id}:5` },
+          ]],
+        },
+      },
+    );
+  } catch (err) {
+    console.error(`[notify] Failed to send rating request for deal ${deal.id}:`, (err as Error).message);
+  }
+}
+
+/**
  * Notify owner that payment was released.
  */
 export async function notifyOwnerPaymentReleased(deal: Deal): Promise<void> {

@@ -106,6 +106,9 @@ export function MyDeals({
               {deal.pricing_model === 'cpc' && deal.click_count > 0 && (
                 <span style={{ fontSize: 11, color: 'var(--tg-hint)' }}>{deal.click_count} clicks</span>
               )}
+              {deal.pricing_model === 'time' && deal.ad_views !== null && (
+                <span style={{ fontSize: 11, color: 'var(--tg-hint)' }}>{deal.ad_views.toLocaleString()} views</span>
+              )}
               <span style={{ fontSize: 11, color: 'var(--tg-hint)' }}>
                 {new Date(deal.created_at).toLocaleDateString()}
               </span>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getDeal, approveDeal, rejectDeal, requestPayment, confirmPayment, cancelDeal, type Deal } from '../api';
+import { getDeal, getChannel, approveDeal, rejectDeal, requestPayment, confirmPayment, cancelDeal, type Deal } from '../api';
 import { useTonConnectUI, useTonWallet } from '@tonconnect/ui-react';
 import { beginCell } from '@ton/core';
 import { Button, Group, GroupItem, Text, Spinner } from '@telegram-tools/ui-kit';
@@ -60,6 +60,7 @@ export function DealDetail({
   const [actionLoading, setActionLoading] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [showRejectForm, setShowRejectForm] = useState(false);
+  const [channelUsername, setChannelUsername] = useState<string | null>(null);
   const [tonConnectUI] = useTonConnectUI();
   const wallet = useTonWallet();
 
@@ -75,6 +76,13 @@ export function DealDetail({
     const interval = setInterval(fetchDeal, 5000);
     return () => clearInterval(interval);
   }, [dealId]);
+
+  useEffect(() => {
+    if (!deal?.channel_id) return;
+    getChannel(deal.channel_id)
+      .then((channel) => setChannelUsername(channel.username || null))
+      .catch(() => setChannelUsername(null));
+  }, [deal?.channel_id]);
 
   const handleApprove = async () => {
     setActionLoading(true);
@@ -99,6 +107,21 @@ export function DealDetail({
   const budgetRemaining = isCpc ? deal.budget - spent : 0;
   const budgetPercent = isCpc && deal.budget > 0 ? Math.round((spent / deal.budget) * 100) : 0;
   const fmt = (v: number) => v % 1 === 0 ? String(v) : v.toFixed(2);
+  const safeAdText = typeof deal.ad_text === 'string' && deal.ad_text.trim().length > 0
+    ? deal.ad_text
+    : '(No ad text provided)';
+  const adPostUrl = channelUsername && deal.posted_message_id
+    ? `https://t.me/${channelUsername.replace(/^@/, '')}/${deal.posted_message_id}`
+    : null;
+
+  const openTelegramLink = (url: string) => {
+    const tg = window.Telegram?.WebApp;
+    if (tg?.openTelegramLink) {
+      tg.openTelegramLink(url);
+      return;
+    }
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
 
   const bannerClass =
     ['posted', 'escrow_held'].includes(deal.status) ? 'blue' :
@@ -153,7 +176,10 @@ export function DealDetail({
       )}
 
       <div className="ad-preview-card">
-        <div className="ad-preview-text">{deal.ad_text}</div>
+        <Text type="caption1" color="secondary" style={{ marginBottom: 8, display: 'block' }}>
+          Ad Copy
+        </Text>
+        <div className="ad-preview-text">{safeAdText}</div>
         {deal.ad_link && (
           <>
             <div className="ad-preview-link" onClick={() => window.open(deal.ad_link!, '_blank')}>
@@ -170,6 +196,23 @@ export function DealDetail({
 
       {/* Stats */}
       <Group header="Details">
+        {adPostUrl && (
+          <GroupItem
+            text="Channel Post"
+            after={(
+              <a
+                href={adPostUrl}
+                onClick={(e) => {
+                  e.preventDefault();
+                  openTelegramLink(adPostUrl);
+                }}
+                style={{ color: 'var(--tg-link)', fontWeight: 600, textDecoration: 'none' }}
+              >
+                Open ad
+              </a>
+            )}
+          />
+        )}
         <GroupItem text="Pricing" after={<Text type="body" weight="medium">{isCpc ? 'Cost per Click' : 'Time-based'}</Text>} />
         {isCpc ? (
           <>
@@ -181,6 +224,12 @@ export function DealDetail({
         ) : (
           <>
             <GroupItem text="Duration" after={<Text type="body" weight="medium">{deal.duration_hours}h</Text>} />
+            {deal.ad_views !== null && (
+              <GroupItem
+                text="Views"
+                after={<Text type="body" weight="bold" color="accent">{deal.ad_views.toLocaleString()}</Text>}
+              />
+            )}
           </>
         )}
         {deal.posted_at && (

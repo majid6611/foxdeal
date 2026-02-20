@@ -12,7 +12,7 @@ import {
   activateChannel,
 } from '../../db/queries.js';
 import { upsertUser, getUserByTelegramId } from '../../db/queries.js';
-import { isBotAdminOfChannel, getChannelInfo, getChannelAverageViews } from '../../bot/admin.js';
+import { isBotAdminOfChannel, getChannelInfo, getChannelPublicStats } from '../../bot/admin.js';
 import { sendChannelForApproval } from '../../bot/adminChannel.js';
 
 export const channelsRouter = Router();
@@ -106,14 +106,27 @@ channelsRouter.post('/', async (req, res) => {
       res.status(400).json({ error: 'Could not retrieve channel info from Telegram' });
       return;
     }
+    console.log('[api] Telegram channel info:', {
+      requestedChannelId: body.telegramChannelId,
+      id: info.id,
+      title: info.title,
+      username: info.username ?? null,
+      memberCount: info.memberCount,
+      hasPhoto: Boolean(info.photoUrl),
+    });
 
     // Upsert user as owner
     const user = await upsertUser(req.telegramUser!.id, 'owner');
 
-    // Compute average post views for public channels (best-effort, non-blocking)
-    const avgPostViews = info.username
-      ? await getChannelAverageViews(info.username)
-      : null;
+    // Compute public stats for public channels (best-effort, non-blocking)
+    const publicStats = info.username
+      ? await getChannelPublicStats(info.username)
+      : { avgPostViews: null, mostUsedLanguage: null };
+    console.log('[api] Channel public stats:', {
+      username: info.username ?? null,
+      avgPostViews: publicStats.avgPostViews,
+      mostUsedLanguage: publicStats.mostUsedLanguage,
+    });
 
     // Create channel
     const channel = await createChannel(
@@ -121,7 +134,8 @@ channelsRouter.post('/', async (req, res) => {
       body.telegramChannelId,
       info.username ?? info.title,
       info.memberCount,
-      avgPostViews,
+      publicStats.avgPostViews,
+      publicStats.mostUsedLanguage,
       body.category,
       body.price,
       body.durationHours,

@@ -35,6 +35,7 @@ export interface Channel {
   username: string;
   subscribers: number;
   avg_post_views: number | null;
+  most_used_language: string | null;
   category: string;
   price: number;
   duration_hours: number;
@@ -43,6 +44,9 @@ export interface Channel {
   is_active: boolean;
   approval_status: 'pending' | 'approved' | 'rejected';
   photo_url: string | null;
+  rating_avg: number;
+  rating_count: number;
+  completed_deals_count: number;
 }
 
 export interface Deal {
@@ -61,6 +65,8 @@ export interface Deal {
   status: string;
   posted_message_id: string | null;
   posted_at: string | null;
+  ad_views: number | null;
+  ad_views_checked_at: string | null;
   verified_at: string | null;
   paid_at: string | null;
   completed_at: string | null;

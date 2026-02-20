@@ -230,6 +230,14 @@ body {
   margin-top: 1px; margin-bottom: 10px;
 }
 
+.catalog-card-rating {
+  font-size: 11px;
+  font-weight: 600;
+  color: #ffd166;
+  margin-top: 2px;
+  margin-bottom: 8px;
+}
+
 .catalog-card-pricing {
   padding-top: 10px;
   border-top: 1px solid var(--border-subtle);
@@ -327,6 +335,57 @@ body {
   background: var(--gradient-fox);
   color: #fff; border-color: transparent;
   box-shadow: 0 2px 8px rgba(255, 107, 43, 0.3);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .filter-chips {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--tg-hint) 55%, transparent) transparent;
+    padding-bottom: 10px;
+  }
+
+  .filter-chips::-webkit-scrollbar {
+    display: block;
+    height: 7px;
+  }
+
+  .filter-chips::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--tg-hint) 45%, transparent);
+    border-radius: 999px;
+  }
+
+  .filter-chips::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--tg-hint) 70%, transparent);
+  }
+
+  .filter-chips::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+.catalog-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.catalog-toolbar-label {
+  font-size: 12px;
+  color: var(--tg-hint);
+  font-weight: 600;
+}
+
+.catalog-toolbar-select {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--tg-secondary-bg);
+  color: var(--tg-text);
+  font-size: 13px;
+  outline: none;
 }
 
 /* ─── Hero Card (ChannelDetail header) ─── */

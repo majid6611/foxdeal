@@ -1,6 +1,6 @@
 import { bot } from './index.js';
 import { env } from '../config/env.js';
-import { approveChannel, rejectChannel, getChannelById, getDealById, getUserByTelegramId } from '../db/queries.js';
+import { approveChannel, rejectChannel, getChannelById, getDealById, getUserByTelegramId, submitChannelRating } from '../db/queries.js';
 import { transitionDeal } from '../escrow/transitions.js';
 import { notifyOwnerNewDeal, notifyAdvertiserApproved, notifyAdvertiserRejected } from './notifications.js';
 import type { Channel, Deal } from '../shared/types.js';
@@ -135,6 +135,12 @@ export function registerAdminChannelHandlers(): void {
     // ── Owner direct deal approval from DM ──
     if (data.startsWith('owner_ad_approve:') || data.startsWith('owner_ad_reject:')) {
       await handleOwnerDealCallback(ctx, data);
+      return;
+    }
+
+    // ── Advertiser rating callback ──
+    if (data.startsWith('rate:')) {
+      await handleRatingCallback(ctx, data);
       return;
     }
 
@@ -346,6 +352,64 @@ async function handleOwnerDealCallback(ctx: any, data: string): Promise<void> {
   } catch (err) {
     console.error('[owner] Deal callback error:', err);
     await ctx.answerCallbackQuery({ text: 'Error processing action' });
+  }
+}
+
+async function handleRatingCallback(ctx: any, data: string): Promise<void> {
+  const [_prefix, dealIdStr, scoreStr] = data.split(':');
+  const dealId = Number(dealIdStr);
+  const score = Number(scoreStr);
+
+  if (!dealId || Number.isNaN(dealId) || score < 1 || score > 5) {
+    await ctx.answerCallbackQuery({ text: 'Invalid rating request' });
+    return;
+  }
+
+  try {
+    const user = await getUserByTelegramId(ctx.from.id);
+    if (!user) {
+      await ctx.answerCallbackQuery({ text: 'User not found' });
+      return;
+    }
+
+    const deal = await getDealById(dealId);
+    if (!deal) {
+      await ctx.answerCallbackQuery({ text: 'Deal not found' });
+      return;
+    }
+
+    if (deal.advertiser_id !== user.id) {
+      await ctx.answerCallbackQuery({ text: 'Only the advertiser can rate this deal.' });
+      return;
+    }
+
+    const rating = await submitChannelRating(dealId, user.id, score);
+    if (!rating) {
+      await ctx.answerCallbackQuery({ text: 'Rating already submitted or not eligible yet.' });
+      await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+      return;
+    }
+
+    await ctx.answerCallbackQuery({ text: `Thanks! You rated ${score}/5 ⭐` });
+
+    const channel = await getChannelById(deal.channel_id);
+    const label = `${'⭐'.repeat(score)}${'☆'.repeat(5 - score)}`;
+    const doneText =
+      `<b>Thanks for your feedback!</b>\n\n` +
+      `Your rating for ${channel ? `@${escapeHtml(channel.username)}` : `channel #${deal.channel_id}`} has been saved.\n` +
+      `<b>Score:</b> ${label} (${score}/5)`;
+
+    if (ctx.callbackQuery.message?.text) {
+      await ctx.editMessageText(doneText, {
+        parse_mode: 'HTML',
+        reply_markup: undefined,
+      }).catch(() => {});
+    } else {
+      await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+    }
+  } catch (err) {
+    console.error('[rating] Callback error:', err);
+    await ctx.answerCallbackQuery({ text: 'Failed to save rating' });
   }
 }
 

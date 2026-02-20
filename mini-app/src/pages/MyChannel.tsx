@@ -6,6 +6,20 @@ const CATEGORIES = ['news', 'tech', 'crypto', 'entertainment', 'education', 'lif
 const DEMO_APPROVAL_LINK = 'https://t.me/foxdealadmin';
 const DEMO_APPROVAL_HANDLE = '@foxdealadmin';
 
+function formatChannelRating(ch: Channel): string {
+  const avg = Number(ch.rating_avg);
+  const count = Number(ch.rating_count);
+  if (!Number.isFinite(count) || count <= 0) return 'No ratings yet';
+  const safeAvg = Number.isFinite(avg) ? avg : 0;
+  return `${safeAvg.toFixed(1)} (${count.toLocaleString()})`;
+}
+
+function formatCompletedAds(ch: Channel): string {
+  const completed = Number(ch.completed_deals_count);
+  if (!Number.isFinite(completed) || completed <= 0) return '0';
+  return completed.toLocaleString();
+}
+
 function approvalColor(ch: Channel) {
   if (ch.approval_status === 'pending') return { bg: 'rgba(255,149,0,0.12)', color: '#ff9500', label: '⏳ Pending' };
   if (ch.approval_status === 'rejected') return { bg: 'rgba(255,59,48,0.12)', color: '#ff3b30', label: '❌ Rejected' };
@@ -170,6 +184,8 @@ export function MyChannel({ onBack }: { onBack: () => void }) {
                 </div>
               } footer={ch.category}>
                 <GroupItem text="Subscribers" after={<Text type="body" weight="bold">{ch.subscribers.toLocaleString()}</Text>} />
+                <GroupItem text="Rating" after={<Text type="body" weight="bold">⭐ {formatChannelRating(ch)}</Text>} />
+                <GroupItem text="Completed Ads" after={<Text type="body" weight="bold">{formatCompletedAds(ch)}</Text>} />
                 <GroupItem text="Time Price" after={<Text type="body" color="accent" weight="bold">{ch.price} TON / {ch.duration_hours}h</Text>} />
                 {ch.cpc_price > 0 && (
                   <GroupItem text="CPC Price" after={<Text type="body" color="accent">{ch.cpc_price} TON/click</Text>} />

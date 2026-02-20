@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { getChannels, type Channel } from '../api';
 import { Text, Spinner } from '@telegram-tools/ui-kit';
 
@@ -9,11 +9,27 @@ const CAT_ICONS: Record<string, string> = {
   education: '📚', lifestyle: '✨', business: '💼', general: '📢',
 };
 
+function formatChannelRating(ch: Channel): string {
+  const avg = Number(ch.rating_avg);
+  const count = Number(ch.rating_count);
+  if (!Number.isFinite(count) || count <= 0) return 'No ratings yet';
+  const safeAvg = Number.isFinite(avg) ? avg : 0;
+  return `${safeAvg.toFixed(1)} (${count.toLocaleString()})`;
+}
+
+function formatCompletedAds(ch: Channel): string {
+  const completed = Number(ch.completed_deals_count);
+  if (!Number.isFinite(completed) || completed <= 0) return '0';
+  return completed.toLocaleString();
+}
+
 export function Catalog({ onSelect }: { onSelect: (ch: Channel) => void }) {
+  const chipsRef = useRef<HTMLDivElement | null>(null);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [filter, setFilter] = useState('all');
+  const [sortBy, setSortBy] = useState<'subs_desc' | 'subs_asc' | 'rating_desc' | 'rating_asc' | 'completed_desc' | 'completed_asc'>('subs_desc');
 
   useEffect(() => {
     getChannels()
@@ -28,6 +44,27 @@ export function Catalog({ onSelect }: { onSelect: (ch: Channel) => void }) {
   const filtered = filter === 'all'
     ? channels
     : channels.filter((ch) => ch.category === filter);
+
+  const sorted = [...filtered].sort((a, b) => {
+    if (sortBy === 'subs_asc') return a.subscribers - b.subscribers;
+    if (sortBy === 'rating_desc') {
+      const avgDiff = Number(b.rating_avg) - Number(a.rating_avg);
+      if (avgDiff !== 0) return avgDiff;
+      return Number(b.rating_count) - Number(a.rating_count);
+    }
+    if (sortBy === 'rating_asc') {
+      const avgDiff = Number(a.rating_avg) - Number(b.rating_avg);
+      if (avgDiff !== 0) return avgDiff;
+      return Number(a.rating_count) - Number(b.rating_count);
+    }
+    if (sortBy === 'completed_desc') {
+      return Number(b.completed_deals_count) - Number(a.completed_deals_count);
+    }
+    if (sortBy === 'completed_asc') {
+      return Number(a.completed_deals_count) - Number(b.completed_deals_count);
+    }
+    return b.subscribers - a.subscribers;
+  });
 
   if (channels.length === 0) {
     return (
@@ -46,7 +83,18 @@ export function Catalog({ onSelect }: { onSelect: (ch: Channel) => void }) {
         <div className="page-subtitle">Find the perfect channel for your ad</div>
       </div>
 
-      <div className="filter-chips">
+      <div
+        ref={chipsRef}
+        className="filter-chips"
+        onWheel={(e) => {
+          // Desktop UX: convert vertical wheel into horizontal chip scrolling.
+          if (!chipsRef.current) return;
+          if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+          if (chipsRef.current.scrollWidth <= chipsRef.current.clientWidth) return;
+          e.preventDefault();
+          chipsRef.current.scrollLeft += e.deltaY;
+        }}
+      >
         {CATEGORIES.map((cat) => (
           <button
             key={cat}
@@ -58,14 +106,31 @@ export function Catalog({ onSelect }: { onSelect: (ch: Channel) => void }) {
         ))}
       </div>
 
-      {filtered.length === 0 ? (
+      <div className="catalog-toolbar">
+        <label htmlFor="catalog-sort" className="catalog-toolbar-label">Sort</label>
+        <select
+          id="catalog-sort"
+          className="catalog-toolbar-select"
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as 'subs_desc' | 'subs_asc' | 'rating_desc' | 'rating_asc' | 'completed_desc' | 'completed_asc')}
+        >
+          <option value="subs_desc">Subscribers: High to Low</option>
+          <option value="subs_asc">Subscribers: Low to High</option>
+          <option value="rating_desc">Rating: High to Low</option>
+          <option value="rating_asc">Rating: Low to High</option>
+          <option value="completed_desc">Completed Ads: High to Low</option>
+          <option value="completed_asc">Completed Ads: Low to High</option>
+        </select>
+      </div>
+
+      {sorted.length === 0 ? (
         <div className="empty" style={{ paddingTop: 24 }}>
           <div className="empty-icon">📭</div>
           <Text type="body" color="secondary">No channels in this category yet.</Text>
         </div>
       ) : (
         <div className="catalog-grid">
-          {filtered.map((ch) => (
+          {sorted.map((ch) => (
             <div key={ch.id} className="catalog-card" onClick={() => onSelect(ch)}>
               {/* Top section */}
               <div className="catalog-card-top">
@@ -85,6 +150,8 @@ export function Catalog({ onSelect }: { onSelect: (ch: Channel) => void }) {
               {/* Channel name */}
               <div className="catalog-card-name">@{ch.username}</div>
               <div className="catalog-card-cat">{ch.category}</div>
+              <div className="catalog-card-rating">⭐ {formatChannelRating(ch)}</div>
+              <div className="catalog-card-cat">Completed ads: {formatCompletedAds(ch)}</div>
               {typeof ch.avg_post_views === 'number' && ch.avg_post_views > 0 && (
                 <div className="catalog-card-cat">Avg views: {ch.avg_post_views.toLocaleString()}</div>
               )}
