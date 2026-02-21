@@ -50,15 +50,23 @@ export function CampaignList({
                 <span className="status-pill status-pending">{campaign.items_total} items</span>
               </div>
               <div style={{ fontSize: 12, color: 'var(--tg-hint)', marginTop: 2 }}>
-                Approved {campaign.approved} · Paid {campaign.paid} · Posted {campaign.posted}
+                {campaign.posted > 0
+                  ? `Posted ${campaign.posted}`
+                  : campaign.paid > 0
+                    ? `Paid ${campaign.paid}`
+                    : `Approved ${campaign.approved}`}
               </div>
               <div className="ch-card-meta" style={{ marginTop: 4 }}>
-                <span style={{ fontSize: 11, color: 'var(--tg-hint)' }}>
-                  Rejected {campaign.rejected}
-                </span>
-                <span style={{ fontSize: 11, color: 'var(--tg-hint)' }}>
-                  Expired {campaign.expired}
-                </span>
+                {campaign.rejected > 0 && (
+                  <span style={{ fontSize: 11, color: 'var(--tg-hint)' }}>
+                    Rejected {campaign.rejected}
+                  </span>
+                )}
+                {campaign.expired > 0 && (
+                  <span style={{ fontSize: 11, color: 'var(--tg-hint)' }}>
+                    Expired {campaign.expired}
+                  </span>
+                )}
                 <span style={{ fontSize: 11, color: 'var(--tg-hint)' }}>
                   {new Date(campaign.created_at).toLocaleDateString()}
                 </span>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Spinner, Text } from '@telegram-tools/ui-kit';
-import { createCampaign, getChannels, uploadImage, type Channel } from '../api';
+import { createCampaign, favoriteChannel, getChannels, unfavoriteChannel, uploadImage, type Channel } from '../api';
 
 const CATEGORIES = ['news', 'tech', 'crypto', 'entertainment', 'education', 'lifestyle', 'business', 'general'] as const;
 const CAT_ICONS: Record<(typeof CATEGORIES)[number], string> = {
@@ -28,6 +28,8 @@ export function CampaignCreate({
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [favoriteError, setFavoriteError] = useState('');
+  const [updatingFavoriteId, setUpdatingFavoriteId] = useState<number | null>(null);
 
   const [title, setTitle] = useState('');
   const [adText, setAdText] = useState('');
@@ -101,10 +103,11 @@ export function CampaignCreate({
   );
 
   const availableChannels = useMemo(
-    () =>
-      channels.filter((ch) =>
-        ch.category === activeCategory && !selectedChannelIds.includes(ch.id),
-      ),
+    () => channels.filter((ch) => {
+      if (selectedChannelIds.includes(ch.id)) return false;
+      if (activeCategory === 'favorites') return Boolean(ch.is_favorite);
+      return ch.category === activeCategory;
+    }),
     [channels, activeCategory, selectedChannelIds],
   );
 
@@ -114,6 +117,26 @@ export function CampaignCreate({
         ? prev.filter((id) => id !== channelId)
         : [...prev, channelId],
     );
+  };
+
+  const handleFavoriteToggle = async (channelId: number, isFavorite: boolean) => {
+    if (updatingFavoriteId === channelId) return;
+    setUpdatingFavoriteId(channelId);
+    setFavoriteError('');
+
+    setChannels((prev) => prev.map((ch) => (ch.id === channelId ? { ...ch, is_favorite: !isFavorite } : ch)));
+    try {
+      if (isFavorite) {
+        await unfavoriteChannel(channelId);
+      } else {
+        await favoriteChannel(channelId);
+      }
+    } catch (e) {
+      setChannels((prev) => prev.map((ch) => (ch.id === channelId ? { ...ch, is_favorite: isFavorite } : ch)));
+      setFavoriteError((e as Error).message);
+    } finally {
+      setUpdatingFavoriteId(null);
+    }
   };
 
   const handleImageSelect = async (file: File | null) => {
@@ -280,7 +303,16 @@ export function CampaignCreate({
 
       <div style={{ marginTop: 18 }}>
         <Text type="caption1" color="secondary" className="form-label-tg">Select Channels</Text>
+        {favoriteError && <Text color="danger" type="caption2">{favoriteError}</Text>}
         <div className="filter-chips">
+          <button
+            key="favorites"
+            type="button"
+            className={`filter-chip ${activeCategory === 'favorites' ? 'active' : ''}`}
+            onClick={() => setActiveCategory('favorites')}
+          >
+            ❤️ Favorites
+          </button>
           {categories.map((cat) => (
             <button
               key={cat}
@@ -295,18 +327,32 @@ export function CampaignCreate({
 
         <div className="campaign-channel-list">
           {availableChannels.length === 0 ? (
-            <Text type="caption2" color="tertiary">No more channels in this category.</Text>
+            <Text type="caption2" color="tertiary">
+              {activeCategory === 'favorites'
+                ? 'No favorite channels available.'
+                : 'No more channels in this category.'}
+            </Text>
           ) : (
             availableChannels.map((ch) => (
-              <button
-                key={ch.id}
-                type="button"
-                className="campaign-channel-btn"
-                onClick={() => toggleChannel(ch.id)}
-              >
-                <span>@{ch.username}</span>
-                <span>{ch.price} TON</span>
-              </button>
+              <div key={ch.id} className="campaign-channel-row">
+                <button
+                  type="button"
+                  className="campaign-channel-btn"
+                  onClick={() => toggleChannel(ch.id)}
+                >
+                  <span>@{ch.username}</span>
+                  <span>{ch.price} TON</span>
+                </button>
+                <button
+                  type="button"
+                  className="campaign-favorite-toggle"
+                  onClick={() => { void handleFavoriteToggle(ch.id, Boolean(ch.is_favorite)); }}
+                  disabled={updatingFavoriteId === ch.id}
+                  aria-label={ch.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
+                >
+                  {ch.is_favorite ? '★' : '☆'}
+                </button>
+              </div>
             ))
           )}
         </div>
@@ -328,13 +374,24 @@ export function CampaignCreate({
                     {ch.category} · {ch.price} TON
                   </div>
                 </div>
-                <button
-                  type="button"
-                  className="campaign-remove-btn"
-                  onClick={() => toggleChannel(ch.id)}
-                >
-                  Remove
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <button
+                    type="button"
+                    className="campaign-favorite-toggle"
+                    onClick={() => { void handleFavoriteToggle(ch.id, Boolean(ch.is_favorite)); }}
+                    disabled={updatingFavoriteId === ch.id}
+                    aria-label={ch.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
+                  >
+                    {ch.is_favorite ? '★' : '☆'}
+                  </button>
+                  <button
+                    type="button"
+                    className="campaign-remove-btn"
+                    onClick={() => toggleChannel(ch.id)}
+                  >
+                    Remove
+                  </button>
+                </div>
               </div>
             ))
           )}

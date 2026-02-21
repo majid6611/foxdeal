@@ -1,5 +1,5 @@
-import { useState, useRef } from 'react';
-import { createDeal, uploadImage, type Channel } from '../api';
+import { useEffect, useRef, useState } from 'react';
+import { createDeal, favoriteChannel, unfavoriteChannel, uploadImage, type Channel } from '../api';
 import { Button, Text } from '@telegram-tools/ui-kit';
 
 export function ChannelDetail({
@@ -18,6 +18,8 @@ export function ChannelDetail({
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [isFavorite, setIsFavorite] = useState(Boolean(channel.is_favorite));
+  const [favoriteLoading, setFavoriteLoading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [pricingModel, setPricingModel] = useState<'time' | 'cpc'>('time');
@@ -36,6 +38,10 @@ export function ChannelDetail({
   const [buttonText, setButtonText] = useState(BUTTON_PRESETS[0]);
   const [customButton, setCustomButton] = useState(false);
   const [customButtonText, setCustomButtonText] = useState('');
+
+  useEffect(() => {
+    setIsFavorite(Boolean(channel.is_favorite));
+  }, [channel.id, channel.is_favorite]);
 
   const hasCpc = channel.cpc_price > 0;
   const estimatedClicks = pricingModel === 'cpc' && budget && channel.cpc_price > 0
@@ -127,6 +133,26 @@ export function ChannelDetail({
     }
   };
 
+  const handleFavoriteToggle = async () => {
+    if (favoriteLoading) return;
+    setFavoriteLoading(true);
+    setError('');
+    const previous = isFavorite;
+    setIsFavorite(!previous);
+    try {
+      if (previous) {
+        await unfavoriteChannel(channel.id);
+      } else {
+        await favoriteChannel(channel.id);
+      }
+    } catch (e) {
+      setIsFavorite(previous);
+      setError((e as Error).message);
+    } finally {
+      setFavoriteLoading(false);
+    }
+  };
+
   const displayPrice = pricingModel === 'cpc'
     ? (budget ? `${budget} TON` : '—')
     : `${channel.price} TON`;
@@ -146,6 +172,15 @@ export function ChannelDetail({
           <div className="hero-info">
             <a href={`https://t.me/${channel.username}`} target="_blank" rel="noopener noreferrer" className="hero-name hero-link">@{channel.username}</a>
             <div className="hero-cat">{channel.category}</div>
+            <button
+              type="button"
+              className="catalog-favorite-btn"
+              onClick={handleFavoriteToggle}
+              disabled={favoriteLoading}
+              style={{ marginTop: 8, width: 'fit-content' }}
+            >
+              {isFavorite ? '★ Favorited' : '☆ Add to favorites'}
+            </button>
           </div>
         </div>
         <div className="hero-stats">

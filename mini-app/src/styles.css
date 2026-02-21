@@ -272,6 +272,27 @@ body {
 }
 .catalog-card:hover .catalog-card-action { opacity: 1; }
 
+.catalog-favorite-btn {
+  margin-top: 8px;
+  border: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--tg-secondary-bg) 88%, transparent);
+  color: var(--tg-text);
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s, color 0.2s;
+}
+.catalog-favorite-btn:hover {
+  border-color: color-mix(in srgb, var(--fox-amber) 60%, transparent);
+  color: var(--fox-amber);
+}
+.catalog-favorite-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 /* ─── Channel Card (used in MyDeals etc.) ─── */
 .ch-card {
   background: var(--tg-secondary-bg);
@@ -317,6 +338,12 @@ body {
   gap: 8px;
 }
 
+.campaign-channel-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .campaign-channel-btn {
   display: flex;
   justify-content: space-between;
@@ -331,6 +358,22 @@ body {
   cursor: pointer;
   font-size: 13px;
   font-weight: 600;
+}
+
+.campaign-favorite-toggle {
+  border: 1px solid var(--border-subtle);
+  background: var(--tg-secondary-bg);
+  color: var(--fox-amber);
+  border-radius: var(--radius-sm);
+  min-width: 40px;
+  height: 40px;
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.campaign-favorite-toggle:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .campaign-channel-btn.selected {

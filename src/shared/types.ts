@@ -21,8 +21,11 @@ export type UserRole = 'advertiser' | 'owner';
 export interface User {
   id: number;
   telegram_id: number;
+  username: string | null;
   role: UserRole;
   wallet_address: string | null;
+  advertiser_rating_avg: number;
+  advertiser_rating_count: number;
   created_at: Date;
 }
 
@@ -47,6 +50,7 @@ export interface Channel {
   rating_avg: number;
   rating_count: number;
   completed_deals_count: number;
+  is_favorite?: boolean;
 }
 
 export interface Deal {
@@ -148,6 +152,15 @@ export interface ChannelRating {
   deal_id: number;
   channel_id: number;
   advertiser_id: number;
+  score: number;
+  created_at: Date;
+}
+
+export interface AdvertiserRating {
+  id: number;
+  deal_id: number;
+  advertiser_id: number;
+  owner_id: number;
   score: number;
   created_at: Date;
 }

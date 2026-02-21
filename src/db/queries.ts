@@ -8,6 +8,7 @@ import type {
   Transaction,
   OwnerEarning,
   ChannelRating,
+  AdvertiserRating,
   DealStatus,
   TransactionType,
   UserRole,
@@ -33,13 +34,15 @@ export async function upsertUser(telegramId: number, role: UserRole): Promise<Us
  * Ensure a user row exists when they interact with the bot (/start).
  * Creates a new row with default role 'advertiser' if missing, but never overrides existing role.
  */
-export async function ensureUserByTelegramId(telegramId: number): Promise<User> {
+export async function ensureUserByTelegramId(telegramId: number, username: string | null = null): Promise<User> {
   const { rows } = await pool.query<User>(
-    `INSERT INTO users (telegram_id, role)
-     VALUES ($1, 'advertiser')
-     ON CONFLICT (telegram_id) DO UPDATE SET telegram_id = EXCLUDED.telegram_id
+    `INSERT INTO users (telegram_id, role, username)
+     VALUES ($1, 'advertiser', $2)
+     ON CONFLICT (telegram_id) DO UPDATE
+       SET telegram_id = EXCLUDED.telegram_id,
+           username = COALESCE(EXCLUDED.username, users.username)
      RETURNING *`,
-    [telegramId],
+    [telegramId, username],
   );
   return rows[0];
 }
@@ -140,6 +143,53 @@ export async function getChannelsByOwner(ownerId: number): Promise<Channel[]> {
   return rows;
 }
 
+export async function getFavoriteChannelIds(userId: number): Promise<number[]> {
+  const { rows } = await pool.query<{ channel_id: number }>(
+    'SELECT channel_id FROM favorite_channels WHERE user_id = $1',
+    [userId],
+  );
+  return rows.map((row) => row.channel_id);
+}
+
+export async function getFavoriteChannelsByUser(userId: number): Promise<Channel[]> {
+  const { rows } = await pool.query<Channel>(
+    `SELECT
+      c.*,
+      COALESCE(dc.completed_deals_count, 0)::int AS completed_deals_count,
+      TRUE AS is_favorite
+     FROM favorite_channels f
+     JOIN channels c ON c.id = f.channel_id
+     LEFT JOIN (
+       SELECT channel_id, COUNT(*)::int AS completed_deals_count
+       FROM deals
+       WHERE status = 'completed'
+       GROUP BY channel_id
+     ) dc ON dc.channel_id = c.id
+     WHERE f.user_id = $1
+       AND c.is_active = TRUE
+       AND c.approval_status = 'approved'
+     ORDER BY f.created_at DESC`,
+    [userId],
+  );
+  return rows;
+}
+
+export async function addFavoriteChannel(userId: number, channelId: number): Promise<void> {
+  await pool.query(
+    `INSERT INTO favorite_channels (user_id, channel_id)
+     VALUES ($1, $2)
+     ON CONFLICT (user_id, channel_id) DO NOTHING`,
+    [userId, channelId],
+  );
+}
+
+export async function removeFavoriteChannel(userId: number, channelId: number): Promise<void> {
+  await pool.query(
+    'DELETE FROM favorite_channels WHERE user_id = $1 AND channel_id = $2',
+    [userId, channelId],
+  );
+}
+
 export async function updateChannelBotAdmin(channelId: number, botIsAdmin: boolean): Promise<void> {
   await pool.query(
     'UPDATE channels SET bot_is_admin = $2 WHERE id = $1',
@@ -193,6 +243,67 @@ export async function rejectChannel(channelId: number): Promise<Channel | null> 
     [channelId],
   );
   return rows[0] ?? null;
+}
+
+export async function resubmitRejectedChannel(
+  channelId: number,
+  ownerId: number,
+  updates: {
+    username: string;
+    subscribers: number;
+    avgPostViews: number | null;
+    mostUsedLanguage: string | null;
+    category: string;
+    price: number;
+    durationHours: number;
+    cpcPrice: number;
+    photoUrl: string | null;
+  },
+): Promise<Channel | null> {
+  const { rows } = await pool.query<Channel>(
+    `UPDATE channels
+     SET username = $3,
+         subscribers = $4,
+         avg_post_views = $5,
+         most_used_language = $6,
+         category = $7,
+         price = $8,
+         duration_hours = $9,
+         cpc_price = $10,
+         photo_url = $11,
+         bot_is_admin = TRUE,
+         approval_status = 'pending',
+         is_active = FALSE
+     WHERE id = $1
+       AND owner_id = $2
+       AND approval_status = 'rejected'
+     RETURNING *, 0::int AS completed_deals_count`,
+    [
+      channelId,
+      ownerId,
+      updates.username,
+      updates.subscribers,
+      updates.avgPostViews,
+      updates.mostUsedLanguage,
+      updates.category,
+      updates.price,
+      updates.durationHours,
+      updates.cpcPrice,
+      updates.photoUrl,
+    ],
+  );
+  return rows[0] ?? null;
+}
+
+export async function removeRejectedChannel(channelId: number, ownerId: number): Promise<boolean> {
+  const { rowCount } = await pool.query(
+    `DELETE FROM channels
+     WHERE id = $1
+       AND owner_id = $2
+       AND approval_status = 'rejected'`,
+    [channelId, ownerId],
+  );
+  return (rowCount ?? 0) > 0;
 }
 
 // ── Deals ────────────────────────────────────────────────────────────
@@ -307,6 +418,14 @@ export async function hasChannelRatingForDeal(dealId: number): Promise<boolean> 
   return rows.length > 0;
 }
 
+export async function hasAdvertiserRatingForDeal(dealId: number): Promise<boolean> {
+  const { rows } = await pool.query<{ id: number }>(
+    'SELECT id FROM advertiser_ratings WHERE deal_id = $1',
+    [dealId],
+  );
+  return rows.length > 0;
+}
+
 /**
  * Submit a 1-5 star rating for a completed deal.
  * Returns null if deal is not eligible or already rated.
@@ -371,6 +490,92 @@ export async function submitChannelRating(
   } finally {
     client.release();
   }
+}
+
+/**
+ * Submit a 1-5 star rating for an advertiser (from channel owner) on a completed deal.
+ * Returns null if deal is not eligible or already rated.
+ */
+export async function submitAdvertiserRating(
+  dealId: number,
+  ownerId: number,
+  score: number,
+): Promise<AdvertiserRating | null> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows: dealRows } = await client.query<Deal>(
+      `SELECT d.*
+       FROM deals d
+       JOIN channels c ON c.id = d.channel_id
+       WHERE d.id = $1
+         AND c.owner_id = $2
+         AND d.status = 'completed'`,
+      [dealId, ownerId],
+    );
+    const deal = dealRows[0];
+    if (!deal) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+
+    const { rows: ratingRows } = await client.query<AdvertiserRating>(
+      `INSERT INTO advertiser_ratings (deal_id, advertiser_id, owner_id, score)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (deal_id) DO NOTHING
+       RETURNING *`,
+      [dealId, deal.advertiser_id, ownerId, score],
+    );
+    const rating = ratingRows[0] ?? null;
+    if (!rating) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+
+    await client.query(
+      `UPDATE users u
+       SET advertiser_rating_avg = agg.avg_score,
+           advertiser_rating_count = agg.cnt
+       FROM (
+         SELECT
+           advertiser_id,
+           COALESCE(ROUND(AVG(score)::numeric, 2), 0) AS avg_score,
+           COUNT(*)::int AS cnt
+         FROM advertiser_ratings
+         WHERE advertiser_id = $1
+         GROUP BY advertiser_id
+       ) agg
+       WHERE u.id = agg.advertiser_id`,
+      [deal.advertiser_id],
+    );
+
+    await client.query('COMMIT');
+    return rating;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export async function getAdvertiserRatingSummary(
+  advertiserId: number,
+): Promise<{ rating_avg: number; rating_count: number }> {
+  const { rows } = await pool.query<{ advertiser_rating_avg: string; advertiser_rating_count: number }>(
+    `SELECT advertiser_rating_avg, advertiser_rating_count
+     FROM users
+     WHERE id = $1`,
+    [advertiserId],
+  );
+  if (!rows[0]) {
+    return { rating_avg: 0, rating_count: 0 };
+  }
+  return {
+    rating_avg: Number(rows[0].advertiser_rating_avg ?? 0),
+    rating_count: Number(rows[0].advertiser_rating_count ?? 0),
+  };
 }
 
 export async function getDealsByAdvertiser(advertiserId: number): Promise<Deal[]> {

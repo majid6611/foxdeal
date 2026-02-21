@@ -1,5 +1,13 @@
-import { useEffect, useState } from 'react';
-import { getMyChannels, deleteChannel, activateChannel, createChannel, type Channel } from '../api';
+import { useEffect, useRef, useState } from 'react';
+import {
+  getMyChannels,
+  deleteChannel,
+  activateChannel,
+  createChannel,
+  resubmitChannel,
+  removeChannel,
+  type Channel,
+} from '../api';
 import { Button, Group, GroupItem, Text, Spinner } from '@telegram-tools/ui-kit';
 
 const CATEGORIES = ['news', 'tech', 'crypto', 'entertainment', 'education', 'lifestyle', 'business', 'general'];
@@ -40,7 +48,9 @@ export function MyChannel({ onBack }: { onBack: () => void }) {
   const [durationHours, setDurationHours] = useState('24');
   const [cpcPrice, setCpcPrice] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [editingRejectedChannelId, setEditingRejectedChannelId] = useState<number | null>(null);
   const [demoNotice, setDemoNotice] = useState('');
+  const errorRef = useRef<HTMLDivElement | null>(null);
 
   const loadChannels = () => {
     setLoading(true);
@@ -53,6 +63,12 @@ export function MyChannel({ onBack }: { onBack: () => void }) {
   useEffect(() => {
     loadChannels();
   }, []);
+
+  useEffect(() => {
+    if (error) {
+      errorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [error]);
 
   const handleDeactivate = async (id: number) => {
     if (!confirm('Deactivate this channel? It will be hidden from the catalog.')) return;
@@ -73,18 +89,54 @@ export function MyChannel({ onBack }: { onBack: () => void }) {
     if (!channelId.trim() || !price) { setError('Please fill in all required fields'); return; }
     setSubmitting(true); setError('');
     try {
-      await createChannel({
-        telegramChannelId: channelId.startsWith('@') ? channelId : `@${channelId}`,
-        category,
-        price: Number(price),
-        durationHours: Number(durationHours),
-        cpcPrice: cpcPrice ? Number(cpcPrice) : 0,
-      });
+      if (editingRejectedChannelId) {
+        await resubmitChannel(editingRejectedChannelId, {
+          category,
+          price: Number(price),
+          durationHours: Number(durationHours),
+          cpcPrice: cpcPrice ? Number(cpcPrice) : 0,
+        });
+      } else {
+        await createChannel({
+          telegramChannelId: channelId.startsWith('@') ? channelId : `@${channelId}`,
+          category,
+          price: Number(price),
+          durationHours: Number(durationHours),
+          cpcPrice: cpcPrice ? Number(cpcPrice) : 0,
+        });
+      }
       setDemoNotice('show');
       setChannelId(''); setCategory('general'); setPrice(''); setDurationHours('24'); setCpcPrice('');
+      setEditingRejectedChannelId(null);
       setShowForm(false); loadChannels();
     } catch (e) { setError((e as Error).message); }
     finally { setSubmitting(false); }
+  };
+
+  const handleEditRejected = (channel: Channel) => {
+    setError('');
+    setEditingRejectedChannelId(channel.id);
+    setChannelId(`@${channel.username}`);
+    setCategory(channel.category);
+    setPrice(String(channel.price));
+    setDurationHours(String(channel.duration_hours));
+    setCpcPrice(channel.cpc_price > 0 ? String(channel.cpc_price) : '');
+    setShowForm(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleRemoveRejected = async (id: number) => {
+    if (!confirm('Remove this rejected channel permanently?')) return;
+    setActionId(id); setError('');
+    try {
+      await removeChannel(id);
+      setChannels((p) => p.filter((c) => c.id !== id));
+      if (editingRejectedChannelId === id) {
+        setEditingRejectedChannelId(null);
+        setShowForm(false);
+      }
+    } catch (e) { setError((e as Error).message); }
+    finally { setActionId(null); }
   };
 
   if (loading) return <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><Spinner size="32px" /></div>;
@@ -96,12 +148,25 @@ export function MyChannel({ onBack }: { onBack: () => void }) {
           <div className="page-title">My Channels</div>
           <div className="page-subtitle">{channels.length} channel{channels.length !== 1 ? 's' : ''}</div>
         </div>
-        <button className={`add-channel-btn ${showForm ? 'cancel' : ''}`} onClick={() => setShowForm(!showForm)}>
+        <button
+          className={`add-channel-btn ${showForm ? 'cancel' : ''}`}
+          onClick={() => {
+            if (showForm) {
+              setEditingRejectedChannelId(null);
+              setChannelId('');
+              setCategory('general');
+              setPrice('');
+              setDurationHours('24');
+              setCpcPrice('');
+            }
+            setShowForm(!showForm);
+          }}
+        >
           {showForm ? '✕ Cancel' : '+ Add Channel'}
         </button>
       </div>
 
-      {error && <div className="error">{error}</div>}
+      {error && <div ref={errorRef} className="error">{error}</div>}
       {demoNotice && (
         <div
           style={{
@@ -124,12 +189,20 @@ export function MyChannel({ onBack }: { onBack: () => void }) {
 
       {showForm && (
         <div className="form-card">
-          <Text type="title3" weight="bold">List Your Channel</Text>
+          <Text type="title3" weight="bold">{editingRejectedChannelId ? 'Edit & Resubmit Channel' : 'List Your Channel'}</Text>
 
           <div className="section-gap">
             <Text type="caption1" color="secondary" className="form-label-tg">Channel Username</Text>
-            <input className="form-input" value={channelId} placeholder="@yourchannel" onChange={(e) => setChannelId(e.target.value)} />
-            <Text type="caption2" color="tertiary" className="form-hint">Bot must be admin in this channel.</Text>
+            <input
+              className="form-input"
+              value={channelId}
+              placeholder="@yourchannel"
+              onChange={(e) => setChannelId(e.target.value)}
+              disabled={editingRejectedChannelId !== null}
+            />
+            <Text type="caption2" color="tertiary" className="form-hint">
+              {editingRejectedChannelId ? 'Channel username is fixed for resubmission.' : 'Bot must be admin in this channel.'}
+            </Text>
           </div>
 
           <div className="section-gap">
@@ -159,7 +232,13 @@ export function MyChannel({ onBack }: { onBack: () => void }) {
           </div>
 
           <div style={{ marginTop: 18 }}>
-            <Button text={submitting ? 'Listing...' : 'List Channel'} type="primary" onClick={handleAddChannel} disabled={submitting} loading={submitting} />
+            <Button
+              text={submitting ? (editingRejectedChannelId ? 'Resubmitting...' : 'Listing...') : (editingRejectedChannelId ? 'Resubmit for Review' : 'List Channel')}
+              type="primary"
+              onClick={handleAddChannel}
+              disabled={submitting}
+              loading={submitting}
+            />
           </div>
         </div>
       )}
@@ -193,7 +272,21 @@ export function MyChannel({ onBack }: { onBack: () => void }) {
                   <GroupItem text="" description="Under review by Fox Deal team. You'll be notified once approved." />
                 )}
                 {ch.approval_status === 'rejected' && (
-                  <GroupItem text="" description="Channel was not approved. Contact support for details." />
+                  <GroupItem text="" description="Channel was not approved. Update details and resubmit for review." />
+                )}
+                {ch.approval_status === 'rejected' && (
+                  <GroupItem
+                    text={actionId === ch.id ? 'Opening...' : '✏️ Edit & Resubmit'}
+                    onClick={() => handleEditRejected(ch)}
+                    disabled={actionId === ch.id}
+                  />
+                )}
+                {ch.approval_status === 'rejected' && (
+                  <GroupItem
+                    text={actionId === ch.id ? 'Removing...' : '🗑 Remove Channel'}
+                    onClick={() => handleRemoveRejected(ch.id)}
+                    disabled={actionId === ch.id}
+                  />
                 )}
                 {ch.approval_status === 'approved' && ch.is_active && (
                   <GroupItem

@@ -1,9 +1,48 @@
 import { bot } from './index.js';
+import { InputFile } from 'grammy';
 import { env } from '../config/env.js';
-import { approveChannel, rejectChannel, getChannelById, getDealById, getUserByTelegramId, submitChannelRating } from '../db/queries.js';
+import {
+  approveChannel,
+  rejectChannel,
+  getChannelById,
+  getDealById,
+  getUserByTelegramId,
+  submitAdvertiserRating,
+  submitChannelRating,
+} from '../db/queries.js';
 import { transitionDeal } from '../escrow/transitions.js';
 import { notifyOwnerNewDeal, notifyAdvertiserApproved, notifyAdvertiserRejected } from './notifications.js';
 import type { Channel, Deal } from '../shared/types.js';
+
+const PUBLIC_MARKET_CHANNEL = '@foxdealads';
+
+const CHANNEL_REJECTION_REASONS = [
+  {
+    code: 'missing_photo',
+    label: 'Missing channel logo',
+    ownerReason: 'Your channel profile photo is missing. Please add a clear logo and submit again.',
+  },
+  {
+    code: 'content_policy',
+    label: 'Content not acceptable',
+    ownerReason: 'Your channel content does not meet our quality and safety requirements.',
+  },
+  {
+    code: 'category_mismatch',
+    label: 'Wrong category selected',
+    ownerReason: 'The selected category does not match your channel content. Please choose the most relevant category.',
+  },
+  {
+    code: 'insufficient_activity',
+    label: 'Insufficient activity',
+    ownerReason: 'Your channel does not currently show enough recent activity for listing.',
+  },
+  {
+    code: 'private_or_unreachable',
+    label: 'Channel not publicly accessible',
+    ownerReason: 'Your channel is private or not publicly accessible. Please make it public and submit again.',
+  },
+] as const;
 
 // ── Helper: get a user's Telegram ID from DB user ID ─────────────────
 
@@ -121,7 +160,11 @@ export function registerAdminChannelHandlers(): void {
     const data = ctx.callbackQuery.data;
 
     // ── Channel approval ──
-    if (data.startsWith('ch_approve:') || data.startsWith('ch_reject:')) {
+    if (
+      data.startsWith('ch_approve:')
+      || data.startsWith('ch_reject:')
+      || data.startsWith('ch_reject_reason:')
+    ) {
       await handleChannelCallback(ctx, data);
       return;
     }
@@ -144,6 +187,12 @@ export function registerAdminChannelHandlers(): void {
       return;
     }
 
+    // ── Owner rating advertiser callback ──
+    if (data.startsWith('rate_adv:')) {
+      await handleOwnerRatingCallback(ctx, data);
+      return;
+    }
+
     // Not handled here — pass to next middleware (e.g. ad_click handler)
     await next();
   });
@@ -154,28 +203,23 @@ export function registerAdminChannelHandlers(): void {
 // ── Channel callback handler ─────────────────────────────────────────
 
 async function handleChannelCallback(ctx: any, data: string): Promise<void> {
-  const [action, channelIdStr] = data.split(':');
-  const channelId = Number(channelIdStr);
-
-  if (!channelId || isNaN(channelId)) {
-    await ctx.answerCallbackQuery({ text: 'Invalid channel ID' });
-    return;
-  }
-
   try {
-    const channel = await getChannelById(channelId);
-    if (!channel) {
-      await ctx.answerCallbackQuery({ text: 'Channel not found' });
-      return;
-    }
-
-    if (channel.approval_status !== 'pending') {
-      await ctx.answerCallbackQuery({ text: `Channel already ${channel.approval_status}` });
-      await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
-      return;
-    }
-
-    if (action === 'ch_approve') {
+    if (data.startsWith('ch_approve:')) {
+      const channelId = Number(data.split(':')[1]);
+      if (!channelId || Number.isNaN(channelId)) {
+        await ctx.answerCallbackQuery({ text: 'Invalid channel ID' });
+        return;
+      }
+      const channel = await getChannelById(channelId);
+      if (!channel) {
+        await ctx.answerCallbackQuery({ text: 'Channel not found' });
+        return;
+      }
+      if (channel.approval_status !== 'pending') {
+        await ctx.answerCallbackQuery({ text: `Channel already ${channel.approval_status}` });
+        await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+        return;
+      }
       await approveChannel(channelId);
       await ctx.answerCallbackQuery({ text: '✅ Channel approved!' });
 
@@ -191,22 +235,63 @@ async function handleChannelCallback(ctx: any, data: string): Promise<void> {
           { parse_mode: 'HTML' },
         ).catch(() => {});
       }
-    } else if (action === 'ch_reject') {
-      await rejectChannel(channelId);
-      await ctx.answerCallbackQuery({ text: '❌ Channel rejected' });
 
-      const originalText = ctx.callbackQuery.message?.text ?? '';
-      await ctx.editMessageText(originalText + '\n\n❌ <b>REJECTED</b>', { parse_mode: 'HTML' }).catch(() => {});
+      // Announce newly approved channel in public Fox Deal channel.
+      await announceApprovedChannel(channel).catch((e) => {
+        console.error('[admin] Failed to announce approved channel:', e);
+      });
+      return;
+    }
 
-      // Notify channel owner
-      const telegramId = await getTelegramId(channel.owner_id);
-      if (telegramId) {
-        await bot.api.sendMessage(
-          telegramId,
-          `<b>❌ Channel not approved</b>\n\nYour channel @${channel.username} was not approved for the Fox Deal catalog. Please contact support for more details.`,
-          { parse_mode: 'HTML' },
-        ).catch(() => {});
+    if (data.startsWith('ch_reject:')) {
+      const channelId = Number(data.split(':')[1]);
+      if (!channelId || Number.isNaN(channelId)) {
+        await ctx.answerCallbackQuery({ text: 'Invalid channel ID' });
+        return;
       }
+      const channel = await getChannelById(channelId);
+      if (!channel) {
+        await ctx.answerCallbackQuery({ text: 'Channel not found' });
+        return;
+      }
+      if (channel.approval_status !== 'pending') {
+        await ctx.answerCallbackQuery({ text: `Channel already ${channel.approval_status}` });
+        await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+        return;
+      }
+      await ctx.answerCallbackQuery({ text: 'Select a rejection reason' });
+      await ctx.editMessageReplyMarkup({
+        reply_markup: {
+          inline_keyboard: buildChannelRejectionKeyboard(channelId),
+        },
+      }).catch(() => {});
+      return;
+    }
+
+    if (data.startsWith('ch_reject_reason:')) {
+      const [_prefix, channelIdStr, reasonCode] = data.split(':');
+      const channelId = Number(channelIdStr);
+      if (!channelId || Number.isNaN(channelId)) {
+        await ctx.answerCallbackQuery({ text: 'Invalid channel ID' });
+        return;
+      }
+      const reason = CHANNEL_REJECTION_REASONS.find((item) => item.code === reasonCode);
+      if (!reason) {
+        await ctx.answerCallbackQuery({ text: 'Invalid reason' });
+        return;
+      }
+      const channel = await getChannelById(channelId);
+      if (!channel) {
+        await ctx.answerCallbackQuery({ text: 'Channel not found' });
+        return;
+      }
+      if (channel.approval_status !== 'pending') {
+        await ctx.answerCallbackQuery({ text: `Channel already ${channel.approval_status}` });
+        await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+        return;
+      }
+      await rejectChannelWithReason(ctx, channel, reason.ownerReason, reason.label);
+      return;
     }
   } catch (err) {
     console.error('[admin] Channel callback error:', err);
@@ -413,6 +498,64 @@ async function handleRatingCallback(ctx: any, data: string): Promise<void> {
   }
 }
 
+async function handleOwnerRatingCallback(ctx: any, data: string): Promise<void> {
+  const [_prefix, dealIdStr, scoreStr] = data.split(':');
+  const dealId = Number(dealIdStr);
+  const score = Number(scoreStr);
+
+  if (!dealId || Number.isNaN(dealId) || score < 1 || score > 5) {
+    await ctx.answerCallbackQuery({ text: 'Invalid rating request' });
+    return;
+  }
+
+  try {
+    const user = await getUserByTelegramId(ctx.from.id);
+    if (!user) {
+      await ctx.answerCallbackQuery({ text: 'User not found' });
+      return;
+    }
+
+    const deal = await getDealById(dealId);
+    if (!deal) {
+      await ctx.answerCallbackQuery({ text: 'Deal not found' });
+      return;
+    }
+
+    const channel = await getChannelById(deal.channel_id);
+    if (!channel || channel.owner_id !== user.id) {
+      await ctx.answerCallbackQuery({ text: 'Only the channel owner can rate this advertiser.' });
+      return;
+    }
+
+    const rating = await submitAdvertiserRating(dealId, user.id, score);
+    if (!rating) {
+      await ctx.answerCallbackQuery({ text: 'Rating already submitted or not eligible yet.' });
+      await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+      return;
+    }
+
+    await ctx.answerCallbackQuery({ text: `Thanks! You rated ${score}/5 ⭐` });
+
+    const label = `${'⭐'.repeat(score)}${'☆'.repeat(5 - score)}`;
+    const doneText =
+      `<b>Thanks for your feedback!</b>\n\n` +
+      `Your advertiser rating has been saved.\n` +
+      `<b>Score:</b> ${label} (${score}/5)`;
+
+    if (ctx.callbackQuery.message?.text) {
+      await ctx.editMessageText(doneText, {
+        parse_mode: 'HTML',
+        reply_markup: undefined,
+      }).catch(() => {});
+    } else {
+      await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+    }
+  } catch (err) {
+    console.error('[owner-rating] Callback error:', err);
+    await ctx.answerCallbackQuery({ text: 'Failed to save rating' });
+  }
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function escapeHtml(text: string): string {
@@ -428,6 +571,125 @@ function resolveImageUrl(url: string): string {
   }
   const base = env.MINI_APP_URL.replace(/\/$/, '');
   return `${base}${url}`;
+}
+
+async function announceApprovedChannel(channel: Channel): Promise<void> {
+  const hasPublicUsername = /^[A-Za-z0-9_]{5,}$/.test(channel.username);
+  const channelLabel = hasPublicUsername
+    ? `@${escapeHtml(channel.username)}`
+    : escapeHtml(channel.username);
+  const cpcLine = channel.cpc_price > 0
+    ? `\n<b>CPC:</b> ${channel.cpc_price} TON/click`
+    : '';
+
+  const text =
+    `<b>👋 Hello & welcome!</b>\n\n` +
+    `A new channel has joined Fox Deal.\n\n` +
+    `<b>Channel:</b> ${channelLabel}\n` +
+    `<b>Category:</b> ${escapeHtml(channel.category)}\n` +
+    `<b>Subscribers:</b> ${channel.subscribers.toLocaleString()}\n` +
+    `<b>Time Price:</b> ${channel.price} TON / ${channel.duration_hours}h` +
+    `${cpcLine}`;
+  const photoFile = await getChannelPhotoFile(channel);
+  if (photoFile) {
+    try {
+      await bot.api.sendPhoto(PUBLIC_MARKET_CHANNEL, photoFile, {
+        caption: text,
+        parse_mode: 'HTML',
+      });
+      return;
+    } catch (err) {
+      console.warn('[admin] Could not send approved-channel photo announcement:', (err as Error).message);
+    }
+  }
+
+  await bot.api.sendMessage(PUBLIC_MARKET_CHANNEL, text, { parse_mode: 'HTML' });
+}
+
+function buildChannelRejectionKeyboard(channelId: number) {
+  const reasonButtons = CHANNEL_REJECTION_REASONS.map((reason) => ([
+    { text: reason.label, callback_data: `ch_reject_reason:${channelId}:${reason.code}` },
+  ]));
+  return reasonButtons;
+}
+
+async function rejectChannelWithReason(
+  ctx: any,
+  channel: Channel,
+  ownerReason: string,
+  selectedLabel: string,
+): Promise<void> {
+  await rejectChannel(channel.id);
+  await ctx.answerCallbackQuery({ text: '❌ Channel rejected' });
+
+  const originalText = ctx.callbackQuery.message?.text ?? '';
+  await updateChannelRejectionMessage(
+    ctx.callbackQuery.message?.chat?.id,
+    ctx.callbackQuery.message?.message_id,
+    originalText,
+    false,
+    ownerReason,
+    selectedLabel,
+  );
+
+  await notifyChannelOwnerRejected(channel, ownerReason);
+}
+
+async function updateChannelRejectionMessage(
+  adminChatId: number | undefined,
+  messageId: number | undefined,
+  originalText: string,
+  isPhotoMessage: boolean,
+  ownerReason: string,
+  selectedLabel: string,
+): Promise<void> {
+  if (!adminChatId || !messageId) return;
+
+  const rejectionTail =
+    `\n\n❌ <b>REJECTED</b>` +
+    `\n<b>Reason:</b> ${escapeHtml(selectedLabel)}` +
+    `\n<b>Owner Note:</b> ${escapeHtml(ownerReason)}`;
+
+  if (isPhotoMessage) {
+    await bot.api.editMessageCaption(adminChatId, messageId, {
+      caption: `${originalText}${rejectionTail}`,
+      parse_mode: 'HTML',
+      reply_markup: undefined,
+    }).catch(() => {});
+    return;
+  }
+
+  await bot.api.editMessageText(adminChatId, messageId, `${originalText}${rejectionTail}`, {
+    parse_mode: 'HTML',
+    reply_markup: undefined,
+  }).catch(() => {});
+}
+
+async function notifyChannelOwnerRejected(channel: Channel, reason: string): Promise<void> {
+  const telegramId = await getTelegramId(channel.owner_id);
+  if (!telegramId) return;
+  await bot.api.sendMessage(
+    telegramId,
+    `<b>❌ Channel not approved</b>\n\n` +
+      `Your channel @${escapeHtml(channel.username)} was not approved for the Fox Deal catalog.\n\n` +
+      `<b>Reason:</b> ${escapeHtml(reason)}\n\n` +
+      `Please review the issue and submit the channel again.`,
+    { parse_mode: 'HTML' },
+  ).catch(() => {});
+}
+
+async function getChannelPhotoFile(channel: Channel): Promise<InputFile | null> {
+  if (!channel.photo_url) return null;
+  try {
+    const photoUrl = resolveImageUrl(channel.photo_url);
+    const resp = await fetch(photoUrl);
+    if (!resp.ok) return null;
+    const bytes = Buffer.from(await resp.arrayBuffer());
+    if (bytes.length === 0) return null;
+    return new InputFile(bytes, `channel-${channel.id}.jpg`);
+  } catch {
+    return null;
+  }
 }
 
 async function markOwnerMessageResolved(ctx: any, label: string): Promise<void> {

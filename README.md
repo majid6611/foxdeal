@@ -3,6 +3,7 @@
 Fox Deal is a Telegram Mini App marketplace where **channel owners** list their channels for advertising and **advertisers** purchase ad placements using **TON**. The platform supports both **time-based** and **cost-per-click (CPC)** pricing models with built-in escrow, automated posting, verification, and earnings tracking.
 
 It also supports **Multi-Channel Campaigns**: an advertiser can create one creative and target multiple channels, creating one independent deal per channel under a single campaign dashboard.
+Advertisers can also mark channels as **favorites** and use **Favorites filters** in both Catalog and Campaign creation.
 
 ---
 
@@ -111,7 +112,7 @@ This starts two containers:
 docker exec market-app npx tsx src/db/migrate.ts
 ```
 
-This creates all required tables (`users`, `channels`, `deals`, `transactions`, `owner_earnings`, `campaigns`, `campaign_items`) and applies any pending schema changes.
+This creates all required tables (`users`, `channels`, `deals`, `transactions`, `owner_earnings`, `campaigns`, `campaign_items`, `favorite_channels`) and applies any pending schema changes.
 
 ### 6. Configure Telegram Bot
 
@@ -177,7 +178,7 @@ fox-deal/
 │   │   ├── index.ts            # App setup, routes, click tracking
 │   │   ├── middleware/auth.ts  # Telegram initData validation
 │   │   └── routes/
-│   │       ├── channels.ts     # Channel CRUD
+│   │       ├── channels.ts     # Channel CRUD + favorites
 │   │       ├── deals.ts        # Deal creation, approve/reject/cancel
 │   │       ├── campaigns.ts    # Multi-channel campaigns (create/list/detail/pay-all)
 │   │       ├── payments.ts     # TON payment prep + confirmation
@@ -218,10 +219,10 @@ fox-deal/
 │       ├── api.ts              # API client (typed fetch wrapper)
 │       ├── styles.css          # Global styles (light/dark theme)
 │       └── pages/
-│           ├── Catalog.tsx     # Browse channels
+│           ├── Catalog.tsx     # Browse channels + favorites filter
 │           ├── ChannelDetail.tsx  # Create deal (time/CPC selector)
 │           ├── CampaignList.tsx   # Multi-channel campaign list
-│           ├── CampaignCreate.tsx # Multi-channel campaign creation
+│           ├── CampaignCreate.tsx # Multi-channel campaign creation + favorites filter
 │           ├── CampaignDetail.tsx # Campaign item statuses + bulk actions
 │           ├── DealDetail.tsx  # Deal status, actions, CPC stats
 │           ├── MyDeals.tsx     # Advertiser/owner deal list
@@ -251,6 +252,17 @@ created → pending_approval → approved → escrow_held → posted → verifie
    - **CPC:** tracks clicks, deducts from budget → completes when budget exhausted
 6. On completion: owner/platform split is calculated by **tiered platform fee**
 7. Earnings are held for **3 days** before payout eligibility
+8. After completion, both sides can submit a **1–5 star rating** (advertiser rates channel, owner rates advertiser)
+
+### Rating System
+
+- Ratings are available only for **completed deals**.
+- **Advertiser → Channel**: advertiser rates the channel (1–5 stars).
+- **Channel Owner → Advertiser**: owner rates the advertiser (1–5 stars).
+- Each deal can be rated only once per side.
+- Channel rating aggregates are stored on the channel profile (`rating_avg`, `rating_count`).
+- Advertiser rating aggregates are stored on the user profile (`advertiser_rating_avg`, `advertiser_rating_count`).
+- When owners receive new deal requests, the advertiser’s current rating summary is shown in the notification.
 
 ### Tiered Platform Fee (by deal amount in TON)
 
@@ -303,6 +315,16 @@ Rules:
 - Each item follows the existing deal lifecycle (approval, payment, posting, verification).
 - Campaign dashboard shows per-channel status, links to each deal, and aggregate metrics.
 - Campaign-specific bulk actions are available (for example, **Pay All Approved**), while legacy single-deal payment endpoints remain unchanged.
+
+## Favorite Channels
+
+- Advertisers can mark/unmark channels as favorites from:
+  - Catalog cards
+  - Channel detail page
+  - Campaign creation channel picker
+- Catalog includes a **Favorites** filter chip to quickly show saved channels.
+- Campaign creation includes a **Favorites** filter chip in the channel selector.
+- Favorites are stored in `favorite_channels` and linked to the authenticated user.
 
 ---
 

@@ -12,7 +12,7 @@ bot.command('start', async (ctx) => {
   // Persist user chat/account ID on first interaction.
   if (ctx.from?.id) {
     try {
-      await ensureUserByTelegramId(ctx.from.id);
+      await ensureUserByTelegramId(ctx.from.id, ctx.from.username ?? null);
     } catch (err) {
       console.error('[bot] Failed to ensure user on /start:', (err as Error).message);
     }

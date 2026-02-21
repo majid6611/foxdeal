@@ -337,8 +337,14 @@ export async function isMessageAlive(
     return true;
   } catch (err) {
     const msg = (err as Error).message ?? '';
-    // "message to copy not found" = deleted, other errors = assume alive (don't refund on API glitches)
-    if (msg.includes('not found') || msg.includes('message to forward not found')) {
+    const lowered = msg.toLowerCase();
+    // Missing/invalid source message should be treated as deleted.
+    if (
+      lowered.includes('not found')
+      || lowered.includes('message to forward not found')
+      || lowered.includes('message_id_invalid')
+      || lowered.includes('message id invalid')
+    ) {
       return false;
     }
     // For other errors (rate limit, network), assume post is still alive

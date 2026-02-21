@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { getChannels, type Channel } from '../api';
+import { favoriteChannel, getChannels, unfavoriteChannel, type Channel } from '../api';
 import { Text, Spinner } from '@telegram-tools/ui-kit';
 
-const CATEGORIES = ['all', 'news', 'tech', 'crypto', 'entertainment', 'education', 'lifestyle', 'business', 'general'];
+const CATEGORIES = ['all', 'favorites', 'news', 'tech', 'crypto', 'entertainment', 'education', 'lifestyle', 'business', 'general'];
 
 const CAT_ICONS: Record<string, string> = {
   news: '📰', tech: '💻', crypto: '₿', entertainment: '🎬',
@@ -27,23 +27,27 @@ export function Catalog({ onSelect }: { onSelect: (ch: Channel) => void }) {
   const chipsRef = useRef<HTMLDivElement | null>(null);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState('');
+  const [actionError, setActionError] = useState('');
   const [filter, setFilter] = useState('all');
   const [sortBy, setSortBy] = useState<'subs_desc' | 'subs_asc' | 'rating_desc' | 'rating_asc' | 'completed_desc' | 'completed_asc'>('subs_desc');
+  const [updatingFavoriteId, setUpdatingFavoriteId] = useState<number | null>(null);
 
   useEffect(() => {
     getChannels()
       .then(setChannels)
-      .catch((e) => setError(e.message))
+      .catch((e) => setLoadError(e.message))
       .finally(() => setLoading(false));
   }, []);
 
   if (loading) return <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><Spinner size="32px" /></div>;
-  if (error) return <Text color="danger">{error}</Text>;
+  if (loadError) return <Text color="danger">{loadError}</Text>;
 
   const filtered = filter === 'all'
     ? channels
-    : channels.filter((ch) => ch.category === filter);
+    : filter === 'favorites'
+      ? channels.filter((ch) => ch.is_favorite)
+      : channels.filter((ch) => ch.category === filter);
 
   const sorted = [...filtered].sort((a, b) => {
     if (sortBy === 'subs_asc') return a.subscribers - b.subscribers;
@@ -76,12 +80,33 @@ export function Catalog({ onSelect }: { onSelect: (ch: Channel) => void }) {
     );
   }
 
+  const handleFavoriteToggle = async (channelId: number, isFavorite: boolean) => {
+    if (updatingFavoriteId === channelId) return;
+    setUpdatingFavoriteId(channelId);
+    setActionError('');
+
+    setChannels((prev) => prev.map((ch) => (ch.id === channelId ? { ...ch, is_favorite: !isFavorite } : ch)));
+    try {
+      if (isFavorite) {
+        await unfavoriteChannel(channelId);
+      } else {
+        await favoriteChannel(channelId);
+      }
+    } catch (e) {
+      setChannels((prev) => prev.map((ch) => (ch.id === channelId ? { ...ch, is_favorite: isFavorite } : ch)));
+      setActionError((e as Error).message);
+    } finally {
+      setUpdatingFavoriteId(null);
+    }
+  };
+
   return (
     <div>
       <div className="page-header">
         <div className="page-title">Browse Channels</div>
         <div className="page-subtitle">Find the perfect channel for your ad</div>
       </div>
+      {actionError && <Text color="danger" type="caption1">{actionError}</Text>}
 
       <div
         ref={chipsRef}
@@ -101,7 +126,11 @@ export function Catalog({ onSelect }: { onSelect: (ch: Channel) => void }) {
             className={`filter-chip ${filter === cat ? 'active' : ''}`}
             onClick={() => setFilter(cat)}
           >
-            {cat === 'all' ? '🔥 All' : `${CAT_ICONS[cat] || ''} ${cat.charAt(0).toUpperCase() + cat.slice(1)}`}
+            {cat === 'all'
+              ? '🔥 All'
+              : cat === 'favorites'
+                ? '❤️ Favorites'
+                : `${CAT_ICONS[cat] || ''} ${cat.charAt(0).toUpperCase() + cat.slice(1)}`}
           </button>
         ))}
       </div>
@@ -173,6 +202,17 @@ export function Catalog({ onSelect }: { onSelect: (ch: Channel) => void }) {
               <div className="catalog-card-action">
                 View Details →
               </div>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void handleFavoriteToggle(ch.id, Boolean(ch.is_favorite));
+                }}
+                disabled={updatingFavoriteId === ch.id}
+                className="catalog-favorite-btn"
+              >
+                {ch.is_favorite ? '★ Favorited' : '☆ Add to favorites'}
+              </button>
             </div>
           ))}
         </div>

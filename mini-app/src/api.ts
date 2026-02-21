@@ -47,6 +47,7 @@ export interface Channel {
   rating_avg: number;
   rating_count: number;
   completed_deals_count: number;
+  is_favorite?: boolean;
 }
 
 export interface Deal {
@@ -80,8 +81,13 @@ export interface Deal {
 
 // Channels
 export const getChannels = () => request<Channel[]>('/channels');
+export const getFavoriteChannels = () => request<Channel[]>('/channels/favorites');
 export const getMyChannels = () => request<Channel[]>('/channels/mine');
 export const getChannel = (id: number) => request<Channel>(`/channels/${id}`);
+export const favoriteChannel = (id: number) =>
+  request<{ success: boolean }>(`/channels/${id}/favorite`, { method: 'POST' });
+export const unfavoriteChannel = (id: number) =>
+  request<{ success: boolean }>(`/channels/${id}/favorite`, { method: 'DELETE' });
 export const createChannel = (data: {
   telegramChannelId: string;
   category: string;
@@ -93,6 +99,17 @@ export const deleteChannel = (id: number) =>
   request<{ success: boolean }>(`/channels/${id}`, { method: 'DELETE' });
 export const activateChannel = (id: number) =>
   request<{ success: boolean }>(`/channels/${id}/activate`, { method: 'POST' });
+export const resubmitChannel = (
+  id: number,
+  data: {
+    category: string;
+    price: number;
+    durationHours: number;
+    cpcPrice?: number;
+  },
+) => request<Channel>(`/channels/${id}/resubmit`, { method: 'POST', body: JSON.stringify(data) });
+export const removeChannel = (id: number) =>
+  request<{ success: boolean }>(`/channels/${id}/remove`, { method: 'POST' });
 export const getConfig = () => request<PublicConfig>('/config');
 
 // Deals

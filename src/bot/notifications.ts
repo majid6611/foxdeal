@@ -1,6 +1,6 @@
 import { bot } from './index.js';
 import { pool } from '../db/index.js';
-import { getChannelById } from '../db/queries.js';
+import { getAdvertiserRatingSummary, getChannelById } from '../db/queries.js';
 import { env } from '../config/env.js';
 import type { Deal } from '../shared/types.js';
 
@@ -35,6 +35,7 @@ async function sendDM(userId: number, message: string): Promise<void> {
 export async function notifyOwnerNewDeal(deal: Deal): Promise<void> {
   const channel = await getChannelById(deal.channel_id);
   if (!channel) return;
+  const advertiserRating = await getAdvertiserRatingSummary(deal.advertiser_id);
 
   const telegramId = await getTelegramId(channel.owner_id);
   if (!telegramId) return;
@@ -47,6 +48,7 @@ export async function notifyOwnerNewDeal(deal: Deal): Promise<void> {
     `<b>New ad request!</b>\n\n` +
     `<b>Channel:</b> @${escapeHtml(channel.username)}\n` +
     `<b>Deal ID:</b> #${deal.id}\n` +
+    `<b>Advertiser rating:</b> ${advertiserRating.rating_count > 0 ? `${advertiserRating.rating_avg.toFixed(2)} / 5 (${advertiserRating.rating_count})` : 'No ratings yet'}\n` +
     `<b>Pricing:</b> ${pricingInfo}\n\n` +
     `<b>Ad copy:</b>\n${escapeHtml(deal.ad_text)}` +
     (deal.ad_link ? `\n\n<b>Link:</b> ${escapeHtml(deal.ad_link)}` : '');
@@ -155,6 +157,40 @@ export async function notifyAdvertiserRatingRequest(deal: Deal): Promise<void> {
     );
   } catch (err) {
     console.error(`[notify] Failed to send rating request for deal ${deal.id}:`, (err as Error).message);
+  }
+}
+
+/**
+ * Ask channel owner to rate advertiser after a completed deal (1-5 stars).
+ */
+export async function notifyOwnerRatingRequest(deal: Deal): Promise<void> {
+  const channel = await getChannelById(deal.channel_id);
+  if (!channel) return;
+
+  const telegramId = await getTelegramId(channel.owner_id);
+  if (!telegramId) return;
+
+  try {
+    await bot.api.sendMessage(
+      telegramId,
+      `<b>Rate this advertiser</b>\n\n` +
+      `How was your experience with deal #${deal.id}?\n` +
+      `Please rate the advertiser from 1 to 5 stars.`,
+      {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [[
+            { text: '⭐ 1', callback_data: `rate_adv:${deal.id}:1` },
+            { text: '⭐ 2', callback_data: `rate_adv:${deal.id}:2` },
+            { text: '⭐ 3', callback_data: `rate_adv:${deal.id}:3` },
+            { text: '⭐ 4', callback_data: `rate_adv:${deal.id}:4` },
+            { text: '⭐ 5', callback_data: `rate_adv:${deal.id}:5` },
+          ]],
+        },
+      },
+    );
+  } catch (err) {
+    console.error(`[notify] Failed to send owner rating request for deal ${deal.id}:`, (err as Error).message);
   }
 }
 

@@ -6,12 +6,20 @@ import {
   getActiveChannels,
   getChannelById,
   getChannelsByOwner,
+  getFavoriteChannelIds,
+  getFavoriteChannelsByUser,
+  addFavoriteChannel,
+  removeFavoriteChannel,
   updateChannelBotAdmin,
   updateChannelPhoto,
   deactivateChannel,
   activateChannel,
+  resubmitRejectedChannel,
+  removeRejectedChannel,
+  ensureUserByTelegramId,
+  upsertUser,
+  getUserByTelegramId,
 } from '../../db/queries.js';
-import { upsertUser, getUserByTelegramId } from '../../db/queries.js';
 import { isBotAdminOfChannel, getChannelInfo, getChannelPublicStats } from '../../bot/admin.js';
 import { sendChannelForApproval } from '../../bot/adminChannel.js';
 
@@ -27,11 +35,25 @@ const createChannelSchema = z.object({
   durationHours: z.number().int().positive().default(24),
   cpcPrice: z.number().min(0).default(0),
 });
+const resubmitChannelSchema = z.object({
+  category: z.string().min(1).max(50),
+  price: z.number().int().positive(),
+  durationHours: z.number().int().positive(),
+  cpcPrice: z.number().min(0).default(0),
+});
+
+function isPgErrorWithCode(
+  err: unknown,
+): err is { code: string; constraint?: string } {
+  return typeof err === 'object' && err !== null && 'code' in err;
+}
 
 // GET /api/channels — browse active channels (catalog)
-channelsRouter.get('/', async (_req, res) => {
+channelsRouter.get('/', async (req, res) => {
   try {
+    const user = await ensureUserByTelegramId(req.telegramUser!.id, req.telegramUser?.username ?? null);
     const channels = await getActiveChannels();
+    const favoriteIds = new Set(await getFavoriteChannelIds(user.id));
 
     // Backfill missing photos
     await Promise.all(
@@ -48,7 +70,7 @@ channelsRouter.get('/', async (_req, res) => {
       }),
     );
 
-    res.json(channels);
+    res.json(channels.map((ch) => ({ ...ch, is_favorite: favoriteIds.has(ch.id) })));
   } catch (err) {
     console.error('[api] GET /channels error:', err);
     res.status(500).json({ error: 'Failed to fetch channels' });
@@ -68,6 +90,48 @@ channelsRouter.get('/mine', async (req, res) => {
   } catch (err) {
     console.error('[api] GET /channels/mine error:', err);
     res.status(500).json({ error: 'Failed to fetch channels' });
+  }
+});
+
+// GET /api/channels/favorites — favorite channels for current user
+channelsRouter.get('/favorites', async (req, res) => {
+  try {
+    const user = await ensureUserByTelegramId(req.telegramUser!.id, req.telegramUser?.username ?? null);
+    const favorites = await getFavoriteChannelsByUser(user.id);
+    res.json(favorites);
+  } catch (err) {
+    console.error('[api] GET /channels/favorites error:', err);
+    res.status(500).json({ error: 'Failed to fetch favorite channels' });
+  }
+});
+
+// POST /api/channels/:id/favorite — mark channel as favorite
+channelsRouter.post('/:id/favorite', async (req, res) => {
+  try {
+    const channel = await getChannelById(Number(req.params.id));
+    if (!channel || !channel.is_active || channel.approval_status !== 'approved') {
+      res.status(404).json({ error: 'Channel not found' });
+      return;
+    }
+
+    const user = await ensureUserByTelegramId(req.telegramUser!.id, req.telegramUser?.username ?? null);
+    await addFavoriteChannel(user.id, channel.id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[api] POST /channels/:id/favorite error:', err);
+    res.status(500).json({ error: 'Failed to favorite channel' });
+  }
+});
+
+// DELETE /api/channels/:id/favorite — remove channel from favorites
+channelsRouter.delete('/:id/favorite', async (req, res) => {
+  try {
+    const user = await ensureUserByTelegramId(req.telegramUser!.id, req.telegramUser?.username ?? null);
+    await removeFavoriteChannel(user.id, Number(req.params.id));
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[api] DELETE /channels/:id/favorite error:', err);
+    res.status(500).json({ error: 'Failed to remove favorite channel' });
   }
 });
 
@@ -154,6 +218,14 @@ channelsRouter.post('/', async (req, res) => {
       res.status(400).json({ error: 'Invalid input', details: err.errors });
       return;
     }
+    if (
+      isPgErrorWithCode(err)
+      && err.code === '23505'
+      && err.constraint === 'channels_telegram_channel_id_key'
+    ) {
+      res.status(409).json({ error: 'This channel is already listed.' });
+      return;
+    }
     console.error('[api] POST /channels error:', err);
     res.status(500).json({ error: 'Failed to create channel' });
   }
@@ -194,6 +266,99 @@ channelsRouter.post('/:id/activate', async (req, res) => {
   } catch (err) {
     console.error('[api] POST /channels/:id/activate error:', err);
     res.status(500).json({ error: 'Failed to activate channel' });
+  }
+});
+
+// POST /api/channels/:id/resubmit — resubmit a rejected channel (owner only)
+channelsRouter.post('/:id/resubmit', async (req, res) => {
+  try {
+    const body = resubmitChannelSchema.parse(req.body);
+    const channel = await getChannelById(Number(req.params.id));
+    if (!channel) {
+      res.status(404).json({ error: 'Channel not found' });
+      return;
+    }
+
+    const user = await getUserByTelegramId(req.telegramUser!.id);
+    if (!user || user.id !== channel.owner_id) {
+      res.status(403).json({ error: 'Not the owner of this channel' });
+      return;
+    }
+
+    if (channel.approval_status !== 'rejected') {
+      res.status(400).json({ error: 'Only rejected channels can be resubmitted' });
+      return;
+    }
+
+    const isAdmin = await isBotAdminOfChannel(channel.telegram_channel_id);
+    if (!isAdmin) {
+      res.status(400).json({
+        error: 'Bot is not an admin of this channel. Please add the bot as an admin first.',
+      });
+      return;
+    }
+
+    const info = await getChannelInfo(channel.telegram_channel_id);
+    if (!info) {
+      res.status(400).json({ error: 'Could not retrieve channel info from Telegram' });
+      return;
+    }
+
+    const publicStats = info.username
+      ? await getChannelPublicStats(info.username)
+      : { avgPostViews: null, mostUsedLanguage: null };
+
+    const updated = await resubmitRejectedChannel(channel.id, user.id, {
+      username: info.username ?? info.title,
+      subscribers: info.memberCount,
+      avgPostViews: publicStats.avgPostViews,
+      mostUsedLanguage: publicStats.mostUsedLanguage,
+      category: body.category,
+      price: body.price,
+      durationHours: body.durationHours,
+      cpcPrice: body.cpcPrice,
+      photoUrl: info.photoUrl,
+    });
+    if (!updated) {
+      res.status(400).json({ error: 'Failed to resubmit channel' });
+      return;
+    }
+
+    await updateChannelBotAdmin(updated.id, true);
+    await sendChannelForApproval(updated, info.username ?? info.title, info.memberCount);
+    res.json(updated);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ error: 'Invalid input', details: err.errors });
+      return;
+    }
+    console.error('[api] POST /channels/:id/resubmit error:', err);
+    res.status(500).json({ error: 'Failed to resubmit channel' });
+  }
+});
+
+// POST /api/channels/:id/remove — permanently remove a rejected channel (owner only)
+channelsRouter.post('/:id/remove', async (req, res) => {
+  try {
+    const channel = await getChannelById(Number(req.params.id));
+    if (!channel) {
+      res.status(404).json({ error: 'Channel not found' });
+      return;
+    }
+    const user = await getUserByTelegramId(req.telegramUser!.id);
+    if (!user || user.id !== channel.owner_id) {
+      res.status(403).json({ error: 'Not the owner of this channel' });
+      return;
+    }
+    const removed = await removeRejectedChannel(channel.id, user.id);
+    if (!removed) {
+      res.status(400).json({ error: 'Only rejected channels can be removed' });
+      return;
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[api] POST /channels/:id/remove error:', err);
+    res.status(500).json({ error: 'Failed to remove channel' });
   }
 });
 

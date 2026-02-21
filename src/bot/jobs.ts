@@ -4,7 +4,7 @@ import { transitionDeal, refundEscrow } from '../escrow/transitions.js';
 import { getDealById, getChannelById } from '../db/queries.js';
 import { env } from '../config/env.js';
 import { pool } from '../db/index.js';
-import { notifyAdvertiserRatingRequest } from './notifications.js';
+import { notifyAdvertiserRatingRequest, notifyOwnerRatingRequest } from './notifications.js';
 import type { Deal } from '../shared/types.js';
 
 // Track active monitoring intervals so we can clean up
@@ -169,6 +169,7 @@ function startMonitoring(dealId: number, durationMinutes: number): void {
         await notifyUser(channel.owner_id,
           `Ad verified in @${channel.username} (deal #${dealId}). ${deal.price} TON have been released to you!`);
         await notifyAdvertiserRatingRequest(completedDeal);
+        await notifyOwnerRatingRequest(completedDeal);
       } else {
         const remaining = Math.round((totalMs - elapsed) / 1000);
         console.log(`[jobs] Deal ${dealId} check OK — ${remaining}s remaining`);
@@ -296,6 +297,7 @@ export async function completeCpcDeal(dealId: number): Promise<void> {
         `CPC ad in ${channelName} (deal #${dealId}) completed. ${spentAmount} TON earned from ${deal.click_count + 1} clicks!`);
     }
     await notifyAdvertiserRatingRequest(completedDeal);
+    await notifyOwnerRatingRequest(completedDeal);
   } catch (err) {
     console.error(`[jobs] completeCpcDeal error for deal ${dealId}:`, (err as Error).message);
   }
@@ -386,6 +388,7 @@ export async function resumePostedDeals(): Promise<void> {
           );
           console.log(`[jobs] Deal ${deal.id} verified on resume`);
           await notifyAdvertiserRatingRequest(completedDeal);
+          await notifyOwnerRatingRequest(completedDeal);
         } else {
           await transitionDeal(deal.id, 'posted', 'disputed');
           await refundEscrow(deal.id, 'disputed', deal.price);
