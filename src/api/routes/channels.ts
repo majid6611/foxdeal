@@ -4,6 +4,7 @@ import { telegramAuth } from '../middleware/auth.js';
 import {
   createChannel,
   getActiveChannels,
+  searchActiveChannels,
   getChannelById,
   getChannelsByOwner,
   getFavoriteChannelIds,
@@ -41,6 +42,28 @@ const resubmitChannelSchema = z.object({
   durationHours: z.number().int().positive(),
   cpcPrice: z.number().min(0).default(0),
 });
+const channelCategorySchema = z.enum([
+  'news',
+  'tech',
+  'crypto',
+  'entertainment',
+  'education',
+  'lifestyle',
+  'business',
+  'general',
+]);
+const browseChannelsQuerySchema = z.object({
+  category: channelCategorySchema.optional(),
+  minSubscribers: z.coerce.number().int().min(0).optional(),
+  minAvgViews: z.coerce.number().int().min(0).optional(),
+  minStars: z.coerce.number().min(0).max(5).optional(),
+  favoriteOnly: z.enum(['true', 'false', '1', '0']).optional(),
+});
+const searchChannelsQuerySchema = browseChannelsQuerySchema.extend({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(50).default(15),
+  favoriteOnly: z.enum(['true', 'false', '1', '0']).optional(),
+});
 
 function isPgErrorWithCode(
   err: unknown,
@@ -51,8 +74,13 @@ function isPgErrorWithCode(
 // GET /api/channels — browse active channels (catalog)
 channelsRouter.get('/', async (req, res) => {
   try {
+    const { favoriteOnly, ...filters } = browseChannelsQuerySchema.parse(req.query);
     const user = await ensureUserByTelegramId(req.telegramUser!.id, req.telegramUser?.username ?? null);
-    const channels = await getActiveChannels();
+    const channels = await getActiveChannels({
+      ...filters,
+      favoriteOnly: favoriteOnly === 'true' || favoriteOnly === '1',
+      favoriteUserId: user.id,
+    });
     const favoriteIds = new Set(await getFavoriteChannelIds(user.id));
 
     // Backfill missing photos
@@ -72,6 +100,10 @@ channelsRouter.get('/', async (req, res) => {
 
     res.json(channels.map((ch) => ({ ...ch, is_favorite: favoriteIds.has(ch.id) })));
   } catch (err) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ error: 'Invalid channel filters', details: err.errors });
+      return;
+    }
     console.error('[api] GET /channels error:', err);
     res.status(500).json({ error: 'Failed to fetch channels' });
   }
@@ -102,6 +134,50 @@ channelsRouter.get('/favorites', async (req, res) => {
   } catch (err) {
     console.error('[api] GET /channels/favorites error:', err);
     res.status(500).json({ error: 'Failed to fetch favorite channels' });
+  }
+});
+
+// GET /api/channels/search — filtered + paginated channels for advanced pickers
+channelsRouter.get('/search', async (req, res) => {
+  try {
+    const { page, limit, favoriteOnly, ...filters } = searchChannelsQuerySchema.parse(req.query);
+    const user = await ensureUserByTelegramId(req.telegramUser!.id, req.telegramUser?.username ?? null);
+    const result = await searchActiveChannels(
+      {
+        ...filters,
+        favoriteOnly: favoriteOnly === 'true' || favoriteOnly === '1',
+        favoriteUserId: user.id,
+      },
+      page,
+      limit,
+    );
+    const favoriteIds = new Set(await getFavoriteChannelIds(user.id));
+
+    await Promise.all(
+      result.items.map(async (ch) => {
+        if (!ch.photo_url) {
+          try {
+            const info = await getChannelInfo(ch.telegram_channel_id);
+            if (info?.photoUrl) {
+              await updateChannelPhoto(ch.id, info.photoUrl);
+              ch.photo_url = info.photoUrl;
+            }
+          } catch {}
+        }
+      }),
+    );
+
+    res.json({
+      ...result,
+      items: result.items.map((ch) => ({ ...ch, is_favorite: favoriteIds.has(ch.id) })),
+    });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ error: 'Invalid channel search filters', details: err.errors });
+      return;
+    }
+    console.error('[api] GET /channels/search error:', err);
+    res.status(500).json({ error: 'Failed to search channels' });
   }
 });
 

@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Spinner, Text } from '@telegram-tools/ui-kit';
-import { createCampaign, favoriteChannel, getChannels, unfavoriteChannel, uploadImage, type Channel } from '../api';
+import { createCampaign, favoriteChannel, searchChannels, unfavoriteChannel, uploadImage, type Channel } from '../api';
 
 const CATEGORIES = ['news', 'tech', 'crypto', 'entertainment', 'education', 'lifestyle', 'business', 'general'] as const;
+type CategoryFilter = 'all' | 'favorites' | (typeof CATEGORIES)[number];
 const CAT_ICONS: Record<(typeof CATEGORIES)[number], string> = {
   news: '📰',
   tech: '💻',
@@ -13,6 +14,41 @@ const CAT_ICONS: Record<(typeof CATEGORIES)[number], string> = {
   business: '💼',
   general: '📢',
 };
+const STAR_OPTIONS = [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5] as const;
+
+interface SmartFilters {
+  category: CategoryFilter;
+  minSubscribers: number;
+  minAvgViews: number;
+  minStars: number;
+}
+
+const DEFAULT_SMART_FILTERS: SmartFilters = {
+  category: 'all',
+  minSubscribers: 0,
+  minAvgViews: 0,
+  minStars: 0,
+};
+
+function clampNonNegative(value: number): number {
+  if (!Number.isFinite(value) || value < 0) return 0;
+  return value;
+}
+
+function clampStars(value: number): number {
+  if (!Number.isFinite(value) || value < 0) return 0;
+  if (value > 5) return 5;
+  return value;
+}
+
+function formatStarsVotes(ch: Channel): string {
+  const starsRaw = Number(ch.rating_avg);
+  const votesRaw = Number(ch.rating_count);
+  const stars = Number.isFinite(starsRaw) ? starsRaw : 0;
+  const votes = Number.isFinite(votesRaw) && votesRaw > 0 ? Math.floor(votesRaw) : 0;
+  const starsText = stars % 1 === 0 ? String(stars) : stars.toFixed(1).replace(/\.0$/, '');
+  return `⭐ ${starsText}(${votes})`;
+}
 
 export function CampaignCreate({
   onBack,
@@ -22,9 +58,17 @@ export function CampaignCreate({
   onCreated: (campaignId: number) => void;
 }) {
   const [channels, setChannels] = useState<Channel[]>([]);
+  const [knownChannelsById, setKnownChannelsById] = useState<Record<number, Channel>>({});
   const [selectedChannelIds, setSelectedChannelIds] = useState<number[]>([]);
-  const [activeCategory, setActiveCategory] = useState('');
+  const [smartFilters, setSmartFilters] = useState<SmartFilters>(DEFAULT_SMART_FILTERS);
+  const [draftSmartFilters, setDraftSmartFilters] = useState<SmartFilters>(DEFAULT_SMART_FILTERS);
+  const [showSmartFilter, setShowSmartFilter] = useState(false);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [listLoading, setListLoading] = useState(false);
+  const [initialLoaded, setInitialLoaded] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -51,18 +95,46 @@ export function CampaignCreate({
   const [customButton, setCustomButton] = useState(false);
   const [customButtonText, setCustomButtonText] = useState('');
 
+  const loadChannels = async (filters: SmartFilters, nextPage: number) => {
+    if (initialLoaded) {
+      setListLoading(true);
+    } else {
+      setLoading(true);
+    }
+    setError('');
+    try {
+      const res = await searchChannels({
+        category: filters.category === 'all' || filters.category === 'favorites' ? undefined : filters.category,
+        minSubscribers: filters.minSubscribers,
+        minAvgViews: filters.minAvgViews,
+        minStars: filters.minStars,
+        favoriteOnly: filters.category === 'favorites',
+        page: nextPage,
+        limit: 2,
+      });
+      setChannels(res.items);
+      setTotalPages(res.total_pages);
+      setTotalItems(res.total);
+      setPage(res.page);
+      setKnownChannelsById((prev) => {
+        const merged = { ...prev };
+        for (const ch of res.items) merged[ch.id] = ch;
+        return merged;
+      });
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      if (initialLoaded) {
+        setListLoading(false);
+      } else {
+        setLoading(false);
+        setInitialLoaded(true);
+      }
+    }
+  };
+
   useEffect(() => {
-    getChannels()
-      .then((loaded) => {
-        setChannels(loaded);
-        if (loaded.length > 0) {
-          const available = new Set(loaded.map((c) => c.category));
-          const firstCategory = CATEGORIES.find((cat) => available.has(cat)) ?? '';
-          setActiveCategory(firstCategory ?? '');
-        }
-      })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+    void loadChannels(DEFAULT_SMART_FILTERS, 1);
   }, []);
 
   const normalizeLink = (raw: string): string => {
@@ -89,26 +161,29 @@ export function CampaignCreate({
     return adText.trim().length > 0 && isValidLink(adLink) && customOk && selectedChannelIds.length > 0 && !submitting;
   }, [adText, adLink, customButton, customButtonText, selectedChannelIds, submitting]);
 
-  const categories = useMemo(
-    () => {
-      const available = new Set(channels.map((ch) => ch.category));
-      return CATEGORIES.filter((cat) => available.has(cat));
-    },
-    [channels],
+  const selectedChannels = useMemo(
+    () => selectedChannelIds
+      .map((id) => knownChannelsById[id])
+      .filter((ch): ch is Channel => Boolean(ch)),
+    [selectedChannelIds, knownChannelsById],
   );
 
-  const selectedChannels = useMemo(
-    () => channels.filter((ch) => selectedChannelIds.includes(ch.id)),
-    [channels, selectedChannelIds],
-  );
+  const activeFilterCount = Number(smartFilters.category !== 'all')
+    + Number(smartFilters.minSubscribers > 0)
+    + Number(smartFilters.minAvgViews > 0)
+    + Number(smartFilters.minStars > 0);
 
   const availableChannels = useMemo(
     () => channels.filter((ch) => {
       if (selectedChannelIds.includes(ch.id)) return false;
-      if (activeCategory === 'favorites') return Boolean(ch.is_favorite);
-      return ch.category === activeCategory;
+      if (smartFilters.category !== 'all' && smartFilters.category !== 'favorites' && ch.category !== smartFilters.category) return false;
+      if (smartFilters.category === 'favorites' && !ch.is_favorite) return false;
+      if (smartFilters.minSubscribers > 0 && Number(ch.subscribers) < smartFilters.minSubscribers) return false;
+      if (smartFilters.minAvgViews > 0 && Number(ch.avg_post_views ?? 0) < smartFilters.minAvgViews) return false;
+      if (smartFilters.minStars > 0 && Number(ch.rating_avg ?? 0) < smartFilters.minStars) return false;
+      return true;
     }),
-    [channels, activeCategory, selectedChannelIds],
+    [channels, selectedChannelIds, smartFilters],
   );
 
   const toggleChannel = (channelId: number) => {
@@ -125,6 +200,9 @@ export function CampaignCreate({
     setFavoriteError('');
 
     setChannels((prev) => prev.map((ch) => (ch.id === channelId ? { ...ch, is_favorite: !isFavorite } : ch)));
+    setKnownChannelsById((prev) => (
+      prev[channelId] ? { ...prev, [channelId]: { ...prev[channelId], is_favorite: !isFavorite } } : prev
+    ));
     try {
       if (isFavorite) {
         await unfavoriteChannel(channelId);
@@ -133,6 +211,9 @@ export function CampaignCreate({
       }
     } catch (e) {
       setChannels((prev) => prev.map((ch) => (ch.id === channelId ? { ...ch, is_favorite: isFavorite } : ch)));
+      setKnownChannelsById((prev) => (
+        prev[channelId] ? { ...prev, [channelId]: { ...prev[channelId], is_favorite: isFavorite } } : prev
+      ));
       setFavoriteError((e as Error).message);
     } finally {
       setUpdatingFavoriteId(null);
@@ -196,6 +277,39 @@ export function CampaignCreate({
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const openSmartFilter = () => {
+    setDraftSmartFilters(smartFilters);
+    setShowSmartFilter(true);
+  };
+
+  const applySmartFilter = () => {
+    const normalized: SmartFilters = {
+      category: draftSmartFilters.category,
+      minSubscribers: clampNonNegative(Math.floor(Number(draftSmartFilters.minSubscribers))),
+      minAvgViews: clampNonNegative(Math.floor(Number(draftSmartFilters.minAvgViews))),
+      minStars: clampStars(Number(draftSmartFilters.minStars)),
+    };
+    setSmartFilters(normalized);
+    void loadChannels(normalized, 1);
+    setShowSmartFilter(false);
+  };
+
+  const resetSmartFilter = () => {
+    setDraftSmartFilters(DEFAULT_SMART_FILTERS);
+    setSmartFilters(DEFAULT_SMART_FILTERS);
+    void loadChannels(DEFAULT_SMART_FILTERS, 1);
+  };
+
+  const goPrevPage = () => {
+    if (page <= 1) return;
+    void loadChannels(smartFilters, page - 1);
+  };
+
+  const goNextPage = () => {
+    if (page >= totalPages) return;
+    void loadChannels(smartFilters, page + 1);
   };
 
   if (loading) return <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><Spinner size="32px" /></div>;
@@ -304,34 +418,30 @@ export function CampaignCreate({
       <div style={{ marginTop: 18 }}>
         <Text type="caption1" color="secondary" className="form-label-tg">Select Channels</Text>
         {favoriteError && <Text color="danger" type="caption2">{favoriteError}</Text>}
-        <div className="filter-chips">
-          <button
-            key="favorites"
-            type="button"
-            className={`filter-chip ${activeCategory === 'favorites' ? 'active' : ''}`}
-            onClick={() => setActiveCategory('favorites')}
-          >
-            ❤️ Favorites
+        <div className="catalog-toolbar">
+          <label className="catalog-toolbar-label">Available</label>
+          <button type="button" className="catalog-pro-filter-btn" onClick={openSmartFilter}>
+            <span className="catalog-pro-filter-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M11 4.5a6.5 6.5 0 1 0 4.03 11.6l4.44 4.44a1 1 0 0 0 1.42-1.42l-4.44-4.44A6.5 6.5 0 0 0 11 4.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </span>
+            Smart Filter{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
           </button>
-          {categories.map((cat) => (
-            <button
-              key={cat}
-              type="button"
-              className={`filter-chip ${activeCategory === cat ? 'active' : ''}`}
-              onClick={() => setActiveCategory(cat)}
-            >
-              {`${CAT_ICONS[cat]} ${cat.charAt(0).toUpperCase() + cat.slice(1)}`}
-            </button>
-          ))}
         </div>
 
         <div className="campaign-channel-list">
           {availableChannels.length === 0 ? (
-            <Text type="caption2" color="tertiary">
-              {activeCategory === 'favorites'
-                ? 'No favorite channels available.'
-                : 'No more channels in this category.'}
-            </Text>
+            <div>
+              <Text type="caption2" color="tertiary">
+                {channels.length === 0 ? 'No channels listed yet.' : 'No channels match your current filters.'}
+              </Text>
+              {activeFilterCount > 0 && (
+                <div style={{ marginTop: 8 }}>
+                  <button type="button" className="catalog-empty-reset-btn" onClick={resetSmartFilter}>Clear filters</button>
+                </div>
+              )}
+            </div>
           ) : (
             availableChannels.map((ch) => (
               <div key={ch.id} className="campaign-channel-row">
@@ -340,7 +450,20 @@ export function CampaignCreate({
                   className="campaign-channel-btn"
                   onClick={() => toggleChannel(ch.id)}
                 >
-                  <span>@{ch.username}</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <a
+                      href={`https://t.me/${ch.username}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      style={{ color: 'var(--tg-link)', textDecoration: 'none', fontWeight: 700 }}
+                    >
+                      @{ch.username}
+                    </a>
+                    <span style={{ color: 'var(--tg-hint)', fontSize: 11, fontWeight: 700 }}>
+                      {formatStarsVotes(ch)}
+                    </span>
+                  </span>
                   <span>{ch.price} TON</span>
                 </button>
                 <button
@@ -356,6 +479,22 @@ export function CampaignCreate({
             ))
           )}
         </div>
+        {totalItems > 2 && (
+          <div className="campaign-pagination">
+            <button type="button" className="campaign-page-btn" onClick={goPrevPage} disabled={listLoading || page <= 1}>
+              Prev
+            </button>
+            <Text type="caption2" color="tertiary">Page {page} / {totalPages}</Text>
+            <button type="button" className="campaign-page-btn" onClick={goNextPage} disabled={listLoading || page >= totalPages}>
+              Next
+            </button>
+          </div>
+        )}
+        {listLoading && (
+          <Text type="caption2" color="tertiary" style={{ marginTop: 8 }}>
+            Loading channels...
+          </Text>
+        )}
       </div>
 
       <div style={{ marginTop: 14 }}>
@@ -369,9 +508,16 @@ export function CampaignCreate({
             selectedChannels.map((ch) => (
               <div key={ch.id} className="campaign-selected-item">
                 <div>
-                  <div style={{ fontSize: 13, fontWeight: 700 }}>@{ch.username}</div>
+                  <a
+                    href={`https://t.me/${ch.username}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ fontSize: 13, fontWeight: 700, color: 'var(--tg-link)', textDecoration: 'none' }}
+                  >
+                    @{ch.username}
+                  </a>
                   <div style={{ fontSize: 11, color: 'var(--tg-hint)' }}>
-                    {ch.category} · {ch.price} TON
+                    {formatStarsVotes(ch)} · {ch.category} · {ch.price} TON
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -407,6 +553,88 @@ export function CampaignCreate({
           loading={submitting}
         />
       </div>
+
+      {showSmartFilter && (
+        <div className="pro-filter-overlay" role="dialog" aria-modal="true" aria-label="Smart filter modal">
+          <div className="pro-filter-backdrop" onClick={() => setShowSmartFilter(false)} />
+          <div className="pro-filter-modal">
+            <div className="pro-filter-title">Smart Filter</div>
+            <div className="pro-filter-subtitle">Find channels faster</div>
+
+            <div className="pro-filter-field">
+              <label htmlFor="campaign-filter-category" className="pro-filter-label">Category</label>
+              <select
+                id="campaign-filter-category"
+                className="pro-filter-input"
+                value={draftSmartFilters.category}
+                onChange={(e) => setDraftSmartFilters((prev) => ({ ...prev, category: e.target.value as CategoryFilter }))}
+              >
+                <option value="all">All categories</option>
+                <option value="favorites">❤️ Favorites</option>
+                {CATEGORIES.map((cat) => (
+                  <option key={cat} value={cat}>{`${CAT_ICONS[cat]} ${cat.charAt(0).toUpperCase() + cat.slice(1)}`}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="pro-filter-field">
+              <label htmlFor="campaign-filter-subs" className="pro-filter-label">Min subscribers</label>
+              <input
+                id="campaign-filter-subs"
+                className="pro-filter-input"
+                type="number"
+                min="0"
+                step="1"
+                value={draftSmartFilters.minSubscribers === 0 ? '' : draftSmartFilters.minSubscribers}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  setDraftSmartFilters((prev) => ({ ...prev, minSubscribers: raw === '' ? 0 : Number(raw) }));
+                }}
+                placeholder="e.g. 10000"
+              />
+            </div>
+
+            <div className="pro-filter-field">
+              <label htmlFor="campaign-filter-views" className="pro-filter-label">Min avg views</label>
+              <input
+                id="campaign-filter-views"
+                className="pro-filter-input"
+                type="number"
+                min="0"
+                step="1"
+                value={draftSmartFilters.minAvgViews === 0 ? '' : draftSmartFilters.minAvgViews}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  setDraftSmartFilters((prev) => ({ ...prev, minAvgViews: raw === '' ? 0 : Number(raw) }));
+                }}
+                placeholder="e.g. 100"
+              />
+            </div>
+
+            <div className="pro-filter-field">
+              <label htmlFor="campaign-filter-stars" className="pro-filter-label">Min stars (0 - 5)</label>
+              <select
+                id="campaign-filter-stars"
+                className="pro-filter-input"
+                value={draftSmartFilters.minStars}
+                onChange={(e) => setDraftSmartFilters((prev) => ({ ...prev, minStars: Number(e.target.value) }))}
+              >
+                {STAR_OPTIONS.map((value) => (
+                  <option key={value} value={value}>
+                    {value === 0 ? 'Any rating' : `${value.toFixed(1)}+`}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="pro-filter-actions">
+              <button type="button" className="pro-filter-btn ghost" onClick={resetSmartFilter}>Reset</button>
+              <button type="button" className="pro-filter-btn ghost" onClick={() => setShowSmartFilter(false)}>Cancel</button>
+              <button type="button" className="pro-filter-btn primary" onClick={applySmartFilter}>Apply</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

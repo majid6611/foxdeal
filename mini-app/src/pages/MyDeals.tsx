@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { getMyDeals, getIncomingDeals, type Deal } from '../api';
 import { Text, Spinner } from '@telegram-tools/ui-kit';
 
@@ -34,8 +34,21 @@ export function MyDeals({
   onSelectDeal: (dealId: number) => void;
 }) {
   const [deals, setDeals] = useState<Deal[]>([]);
+  const [sortBy, setSortBy] = useState<'date' | 'views'>('date');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  const sortedDeals = useMemo(() => {
+    const viewMetric = (deal: Deal): number => {
+      if (typeof deal.ad_views === 'number') return deal.ad_views;
+      return deal.click_count;
+    };
+
+    return [...deals].sort((a, b) => {
+      if (sortBy === 'views') return viewMetric(b) - viewMetric(a);
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+  }, [deals, sortBy]);
 
   useEffect(() => {
     const fetchDeals = isOwner ? getIncomingDeals : getMyDeals;
@@ -69,7 +82,19 @@ export function MyDeals({
         <div className="page-subtitle">{deals.length} deal{deals.length !== 1 ? 's' : ''}</div>
       </div>
 
-      {deals.map((deal) => (
+      <div style={{ marginBottom: 12 }}>
+        <select
+          className="form-select"
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as 'date' | 'views')}
+          aria-label="Sort deals"
+        >
+          <option value="date">Sort by date (newest)</option>
+          <option value="views">Sort by views (highest)</option>
+        </select>
+      </div>
+
+      {sortedDeals.map((deal) => (
         <div key={deal.id} className="ch-card" onClick={() => onSelectDeal(deal.id)}>
           <div className="ch-avatar" style={{
             background: `${statusColor(deal.status)}22`,

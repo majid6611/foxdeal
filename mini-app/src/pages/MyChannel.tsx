@@ -28,6 +28,12 @@ function formatCompletedAds(ch: Channel): string {
   return completed.toLocaleString();
 }
 
+function formatTonAmount(value: number | null | undefined): string {
+  const amount = Number(value ?? 0);
+  if (!Number.isFinite(amount)) return '0';
+  return amount.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 4 });
+}
+
 function approvalColor(ch: Channel) {
   if (ch.approval_status === 'pending') return { bg: 'rgba(255,149,0,0.12)', color: '#ff9500', label: '⏳ Pending' };
   if (ch.approval_status === 'rejected') return { bg: 'rgba(255,59,48,0.12)', color: '#ff3b30', label: '❌ Rejected' };
@@ -69,6 +75,14 @@ export function MyChannel({ onBack }: { onBack: () => void }) {
       errorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   }, [error]);
+
+  const cpcValue = Number(cpcPrice);
+  const clicksPerTon = cpcValue > 0 ? 1 / cpcValue : null;
+  const formattedClicksPerTon = clicksPerTon === null
+    ? null
+    : Number.isInteger(clicksPerTon)
+      ? clicksPerTon.toLocaleString()
+      : clicksPerTon.toFixed(2).replace(/\.?0+$/, '');
 
   const handleDeactivate = async (id: number) => {
     if (!confirm('Deactivate this channel? It will be hidden from the catalog.')) return;
@@ -228,7 +242,12 @@ export function MyChannel({ onBack }: { onBack: () => void }) {
 
           <div className="section-gap">
             <Text type="caption1" color="secondary" className="form-label-tg">CPC Price (TON/click)</Text>
-            <input className="form-input" type="number" min="0.1" step="0.1" value={cpcPrice} placeholder="e.g. 0.5 or 5" onChange={(e) => setCpcPrice(e.target.value)} />
+            <input className="form-input" type="number" min="0.001" step="0.001" value={cpcPrice} placeholder="e.g. 0.02 or 0.5" onChange={(e) => setCpcPrice(e.target.value)} />
+            {formattedClicksPerTon && (
+              <Text type="caption2" color="tertiary" className="form-hint">
+                1 TON = {formattedClicksPerTon} clicks at {cpcValue} TON/click
+              </Text>
+            )}
           </div>
 
           <div style={{ marginTop: 18 }}>
@@ -254,7 +273,19 @@ export function MyChannel({ onBack }: { onBack: () => void }) {
           const st = approvalColor(ch);
           return (
             <div key={ch.id} style={{ marginBottom: 12 }}>
-              <Group header={`@${ch.username}`} footer={ch.category}>
+              <Group
+                header={(
+                  <a
+                    href={`https://t.me/${ch.username}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: 'var(--tg-link)', textDecoration: 'none', fontWeight: 700 }}
+                  >
+                    @{ch.username}
+                  </a>
+                )}
+                footer={ch.category}
+              >
                 <GroupItem
                   text="Status"
                   after={<span className="status-pill" style={{ background: st.bg, color: st.color }}>{st.label}</span>}
@@ -262,6 +293,7 @@ export function MyChannel({ onBack }: { onBack: () => void }) {
                 <GroupItem text="Subscribers" after={<Text type="body" weight="bold">{ch.subscribers.toLocaleString()}</Text>} />
                 <GroupItem text="Rating" after={<Text type="body" weight="bold">⭐ {formatChannelRating(ch)}</Text>} />
                 <GroupItem text="Completed Ads" after={<Text type="body" weight="bold">{formatCompletedAds(ch)}</Text>} />
+                <GroupItem text="Earned (Net)" after={<Text type="body" color="accent" weight="bold">{formatTonAmount(ch.earned_net)} TON</Text>} />
                 <GroupItem text="Time Price" after={<Text type="body" color="accent" weight="bold">{ch.price} TON / {ch.duration_hours}h</Text>} />
                 {ch.cpc_price > 0 && (
                   <GroupItem text="CPC Price" after={<Text type="body" color="accent">{ch.cpc_price} TON/click</Text>} />

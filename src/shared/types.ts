@@ -50,6 +50,7 @@ export interface Channel {
   rating_avg: number;
   rating_count: number;
   completed_deals_count: number;
+  earned_net?: number;
   is_favorite?: boolean;
 }
 

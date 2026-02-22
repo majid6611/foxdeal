@@ -47,7 +47,16 @@ export interface Channel {
   rating_avg: number;
   rating_count: number;
   completed_deals_count: number;
+  earned_net?: number;
   is_favorite?: boolean;
+}
+
+export interface ChannelsPage {
+  items: Channel[];
+  total: number;
+  page: number;
+  limit: number;
+  total_pages: number;
 }
 
 export interface Deal {
@@ -80,8 +89,49 @@ export interface Deal {
 }
 
 // Channels
-export const getChannels = () => request<Channel[]>('/channels');
+export const getChannels = (filters?: {
+  category?: string;
+  minSubscribers?: number;
+  minAvgViews?: number;
+  minStars?: number;
+  favoriteOnly?: boolean;
+}) => {
+  const params = new URLSearchParams();
+  if (filters?.category) params.set('category', filters.category);
+  if (typeof filters?.minSubscribers === 'number' && filters.minSubscribers > 0) {
+    params.set('minSubscribers', String(filters.minSubscribers));
+  }
+  if (typeof filters?.minAvgViews === 'number' && filters.minAvgViews > 0) {
+    params.set('minAvgViews', String(filters.minAvgViews));
+  }
+  if (typeof filters?.minStars === 'number' && filters.minStars > 0) {
+    params.set('minStars', String(filters.minStars));
+  }
+  if (filters?.favoriteOnly) params.set('favoriteOnly', 'true');
+  const query = params.toString();
+  return request<Channel[]>(`/channels${query ? `?${query}` : ''}`);
+};
 export const getFavoriteChannels = () => request<Channel[]>('/channels/favorites');
+export const searchChannels = (params?: {
+  category?: string;
+  minSubscribers?: number;
+  minAvgViews?: number;
+  minStars?: number;
+  favoriteOnly?: boolean;
+  page?: number;
+  limit?: number;
+}) => {
+  const query = new URLSearchParams();
+  if (params?.category) query.set('category', params.category);
+  if (typeof params?.minSubscribers === 'number') query.set('minSubscribers', String(params.minSubscribers));
+  if (typeof params?.minAvgViews === 'number') query.set('minAvgViews', String(params.minAvgViews));
+  if (typeof params?.minStars === 'number') query.set('minStars', String(params.minStars));
+  if (params?.favoriteOnly) query.set('favoriteOnly', 'true');
+  if (typeof params?.page === 'number') query.set('page', String(params.page));
+  if (typeof params?.limit === 'number') query.set('limit', String(params.limit));
+  const qs = query.toString();
+  return request<ChannelsPage>(`/channels/search${qs ? `?${qs}` : ''}`);
+};
 export const getMyChannels = () => request<Channel[]>('/channels/mine');
 export const getChannel = (id: number) => request<Channel>(`/channels/${id}`);
 export const favoriteChannel = (id: number) =>

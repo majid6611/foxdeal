@@ -105,7 +105,57 @@ export async function getChannelById(id: number): Promise<Channel | null> {
   return rows[0] ?? null;
 }
 
-export async function getActiveChannels(): Promise<Channel[]> {
+export interface ActiveChannelFilters {
+  category?: string;
+  minSubscribers?: number;
+  minAvgViews?: number;
+  minStars?: number;
+  favoriteOnly?: boolean;
+  favoriteUserId?: number;
+}
+
+export interface ChannelSearchResult {
+  items: Channel[];
+  total: number;
+  page: number;
+  limit: number;
+  total_pages: number;
+}
+
+export async function getActiveChannels(filters: ActiveChannelFilters = {}): Promise<Channel[]> {
+  const conditions = ['c.is_active = TRUE', `c.approval_status = 'approved'`];
+  const values: Array<string | number> = [];
+
+  if (filters.category) {
+    values.push(filters.category);
+    conditions.push(`c.category = $${values.length}`);
+  }
+
+  if (typeof filters.minSubscribers === 'number') {
+    values.push(filters.minSubscribers);
+    conditions.push(`c.subscribers >= $${values.length}`);
+  }
+
+  if (typeof filters.minAvgViews === 'number') {
+    values.push(filters.minAvgViews);
+    conditions.push(`COALESCE(c.avg_post_views, 0) >= $${values.length}`);
+  }
+
+  if (typeof filters.minStars === 'number') {
+    values.push(filters.minStars);
+    conditions.push(`COALESCE(c.rating_avg, 0) >= $${values.length}`);
+  }
+
+  if (filters.favoriteOnly && typeof filters.favoriteUserId === 'number') {
+    values.push(filters.favoriteUserId);
+    conditions.push(`EXISTS (
+      SELECT 1
+      FROM favorite_channels f
+      WHERE f.user_id = $${values.length}
+        AND f.channel_id = c.id
+    )`);
+  }
+
   const { rows } = await pool.query<Channel>(
     `SELECT
       c.*,
@@ -117,25 +167,121 @@ export async function getActiveChannels(): Promise<Channel[]> {
        WHERE status = 'completed'
        GROUP BY channel_id
      ) dc ON dc.channel_id = c.id
-     WHERE c.is_active = TRUE
-       AND c.approval_status = 'approved'
+     WHERE ${conditions.join(' AND ')}
      ORDER BY c.subscribers DESC`,
+    values,
   );
   return rows;
+}
+
+export async function searchActiveChannels(
+  filters: ActiveChannelFilters = {},
+  page: number = 1,
+  limit: number = 15,
+): Promise<ChannelSearchResult> {
+  const conditions = ['c.is_active = TRUE', `c.approval_status = 'approved'`];
+  const filterValues: Array<string | number> = [];
+
+  if (filters.category) {
+    filterValues.push(filters.category);
+    conditions.push(`c.category = $${filterValues.length}`);
+  }
+
+  if (typeof filters.minSubscribers === 'number') {
+    filterValues.push(filters.minSubscribers);
+    conditions.push(`c.subscribers >= $${filterValues.length}`);
+  }
+
+  if (typeof filters.minAvgViews === 'number') {
+    filterValues.push(filters.minAvgViews);
+    conditions.push(`COALESCE(c.avg_post_views, 0) >= $${filterValues.length}`);
+  }
+
+  if (typeof filters.minStars === 'number') {
+    filterValues.push(filters.minStars);
+    conditions.push(`COALESCE(c.rating_avg, 0) >= $${filterValues.length}`);
+  }
+
+  if (filters.favoriteOnly && typeof filters.favoriteUserId === 'number') {
+    filterValues.push(filters.favoriteUserId);
+    conditions.push(`EXISTS (
+      SELECT 1
+      FROM favorite_channels f
+      WHERE f.user_id = $${filterValues.length}
+        AND f.channel_id = c.id
+    )`);
+  }
+
+  const safeLimit = Math.max(1, Math.min(50, Math.floor(limit)));
+  const safePage = Math.max(1, Math.floor(page));
+  const offset = (safePage - 1) * safeLimit;
+  const whereClause = conditions.join(' AND ');
+
+  const countRes = await pool.query<{ total: string }>(
+    `SELECT COUNT(*)::bigint AS total
+     FROM channels c
+     WHERE ${whereClause}`,
+    filterValues,
+  );
+  const total = Number(countRes.rows[0]?.total ?? 0);
+  const totalPages = Math.max(1, Math.ceil(total / safeLimit));
+
+  const orderClause = filters.category
+    ? 'c.subscribers DESC'
+    : `(COALESCE(c.rating_avg, 0) * 100 + COALESCE(c.rating_count, 0)) DESC,
+       COALESCE(c.rating_count, 0) DESC,
+       c.subscribers DESC`;
+
+  const dataValues = [...filterValues, safeLimit, offset];
+  const { rows } = await pool.query<Channel>(
+    `SELECT
+      c.*,
+      COALESCE(dc.completed_deals_count, 0)::int AS completed_deals_count
+     FROM channels c
+     LEFT JOIN (
+       SELECT channel_id, COUNT(*)::int AS completed_deals_count
+       FROM deals
+       WHERE status = 'completed'
+       GROUP BY channel_id
+     ) dc ON dc.channel_id = c.id
+     WHERE ${whereClause}
+     ORDER BY ${orderClause}
+     LIMIT $${filterValues.length + 1}
+     OFFSET $${filterValues.length + 2}`,
+    dataValues,
+  );
+
+  return {
+    items: rows,
+    total,
+    page: safePage,
+    limit: safeLimit,
+    total_pages: totalPages,
+  };
 }
 
 export async function getChannelsByOwner(ownerId: number): Promise<Channel[]> {
   const { rows } = await pool.query<Channel>(
     `SELECT
       c.*,
-      COALESCE(dc.completed_deals_count, 0)::int AS completed_deals_count
+      COALESCE(dc.completed_deals_count, 0)::int AS completed_deals_count,
+      COALESCE(es.earned_net, 0)::double precision AS earned_net
      FROM channels c
      LEFT JOIN (
-       SELECT channel_id, COUNT(*)::int AS completed_deals_count
-       FROM deals
-       WHERE status = 'completed'
-       GROUP BY channel_id
+       SELECT c2.id AS channel_id, COUNT(d.id)::int AS completed_deals_count
+       FROM channels c2
+       LEFT JOIN deals d
+         ON d.channel_id = c2.id
+        AND d.status = 'completed'
+       WHERE c2.owner_id = $1
+       GROUP BY c2.id
      ) dc ON dc.channel_id = c.id
+     LEFT JOIN (
+       SELECT channel_id, SUM(net_amount)::double precision AS earned_net
+       FROM owner_earnings
+       WHERE owner_id = $1
+       GROUP BY channel_id
+     ) es ON es.channel_id = c.id
      WHERE c.owner_id = $1
      ORDER BY c.created_at DESC`,
     [ownerId],

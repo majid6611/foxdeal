@@ -419,6 +419,30 @@ body {
   padding: 10px 12px;
 }
 
+.campaign-pagination {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.campaign-page-btn {
+  border: 1px solid var(--border-subtle);
+  background: var(--tg-secondary-bg);
+  color: var(--tg-text);
+  border-radius: 9px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.campaign-page-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 /* ─── Filter Chips ─── */
 .filter-chips {
   display: flex; gap: 6px; overflow-x: auto;
@@ -493,6 +517,166 @@ body {
   color: var(--tg-text);
   font-size: 13px;
   outline: none;
+}
+
+.catalog-pro-filter-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid color-mix(in srgb, var(--tg-link) 45%, var(--border-subtle));
+  background: color-mix(in srgb, var(--tg-secondary-bg) 86%, #0f1420);
+  color: color-mix(in srgb, var(--tg-text) 88%, #cfe3ff);
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.catalog-pro-filter-btn:hover {
+  border-color: color-mix(in srgb, var(--tg-link) 70%, #ffffff);
+  color: var(--tg-text);
+  background: color-mix(in srgb, var(--tg-secondary-bg) 78%, #152238);
+}
+
+.catalog-pro-filter-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.95;
+}
+
+.catalog-empty-reset-btn {
+  margin-top: 10px;
+  border: 1px solid color-mix(in srgb, var(--tg-link) 45%, var(--border-subtle));
+  background: color-mix(in srgb, var(--tg-secondary-bg) 88%, #0f1420);
+  color: var(--tg-text);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.pro-filter-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 160;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.pro-filter-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.56);
+  backdrop-filter: blur(2px);
+}
+
+.pro-filter-modal {
+  position: relative;
+  width: min(460px, calc(100vw - 24px));
+  max-height: min(82vh, 720px);
+  overflow-y: auto;
+  background: linear-gradient(
+    165deg,
+    color-mix(in srgb, var(--tg-secondary-bg) 92%, #0e0f18) 0%,
+    color-mix(in srgb, var(--tg-secondary-bg) 84%, #12151f) 100%
+  );
+  border: 1px solid color-mix(in srgb, var(--fox-orange) 28%, var(--border-subtle));
+  border-radius: 16px 16px 10px 10px;
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.45);
+  padding: 16px 14px 14px;
+  margin: 12px;
+}
+
+.pro-filter-title {
+  font-size: 18px;
+  font-weight: 800;
+  color: #fff;
+}
+
+.pro-filter-subtitle {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--tg-hint);
+}
+
+.pro-filter-field {
+  margin-top: 12px;
+}
+
+.pro-filter-label {
+  display: block;
+  font-size: 12px;
+  color: var(--tg-hint);
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.pro-filter-input {
+  width: 100%;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--tg-secondary-bg) 82%, black);
+  color: var(--tg-text);
+  padding: 10px 12px;
+  font-size: 14px;
+  outline: none;
+}
+
+.pro-filter-input:focus {
+  border-color: var(--fox-amber);
+  box-shadow: 0 0 0 2px rgba(255, 140, 66, 0.2);
+}
+
+.pro-filter-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.pro-filter-btn {
+  border: none;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.pro-filter-btn.ghost {
+  background: color-mix(in srgb, var(--tg-secondary-bg) 88%, black);
+  border: 1px solid var(--border-subtle);
+  color: var(--tg-text);
+}
+
+.pro-filter-btn.primary {
+  background: var(--gradient-fox);
+  color: #fff;
+}
+
+@media (max-width: 420px) {
+  .catalog-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .catalog-toolbar-label {
+    width: 100%;
+  }
+
+  .catalog-toolbar-select {
+    flex: 1 1 100%;
+  }
+
+  .catalog-pro-filter-btn {
+    width: 100%;
+  }
 }
 
 /* ─── Hero Card (ChannelDetail header) ─── */
